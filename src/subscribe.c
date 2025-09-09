@@ -1,0 +1,125 @@
+#include "arena.h"
+#include "logger.h"
+#include "mqtt.h"
+#include "tera_internal.h"
+
+static Subscription_Data *find_free_subscription_slot(Tera_Context *ctx)
+{
+    for (usize i = 0; i < MAX_SUBSCRIPTIONS; ++i) {
+        if (ctx->subscription_data[i].active)
+            continue;
+
+        return &ctx->subscription_data[i];
+    }
+
+    return NULL;
+}
+
+MQTT_Decode_Result mqtt_subscribe_read(Tera_Context *ctx, const Client_Data *cdata,
+                                       Subscribe_Result *r)
+{
+    uint16 id       = 0;
+    Buffer *buf     = &ctx->connection_data[cdata->conn_id].recv_buffer;
+    usize start_pos = buf->read_pos;
+
+    r->acknowledged = false;
+
+    // Read packet type and flags
+    if (buffer_read_struct(buf, "B", &(uint8){0}) != 1) {
+        log_error("Failed to read packet header");
+        return MQTT_DECODE_ERROR;
+    }
+
+    // Read remaining length
+    usize packet_length = 0;
+    int length_bytes    = mqtt_variable_length_read(buf, &packet_length);
+    if (length_bytes < 0) {
+        log_error("Invalid variable length encoding");
+        buf->read_pos = start_pos; // Restore position
+        return MQTT_DECODE_INCOMPLETE;
+    }
+
+    // Validate we have enough data for the complete packet
+    usize total_packet_size =
+        sizeof(uint8) + length_bytes + packet_length; // header + length + payload
+    if (start_pos + total_packet_size > buf->size) {
+        log_debug("Incomplete packet - need %zu more bytes",
+                  (start_pos + total_packet_size) - buf->size);
+        buf->read_pos = start_pos; // Restore position
+        return MQTT_DECODE_INCOMPLETE;
+    }
+
+    usize memory_offset = ctx->topic_arena->curr_offset;
+    uint8 *ptr          = arena_alloc(ctx->topic_arena, packet_length);
+    if (!ptr) {
+        // TODO handle case
+        log_critical("bump arena OOM");
+    }
+
+    if (buffer_read_struct(buf, "H", &id) != sizeof(uint16))
+        return MQTT_DECODE_ERROR;
+    packet_length -= sizeof(uint16);
+
+    usize properties_length = 0;
+    int prop_length_bytes   = mqtt_variable_length_read(buf, &properties_length);
+    if (prop_length_bytes < 0)
+        return MQTT_DECODE_ERROR;
+
+    packet_length -= prop_length_bytes;
+
+    // Skip Properties for now (should be parsed in full implementation)
+    if (buffer_skip(buf, properties_length) != properties_length)
+        return MQTT_DECODE_ERROR;
+
+    packet_length -= properties_length;
+
+    /*
+     * Read in a loop all remaining bytes specified by len of the Fixed Header.
+     * From now on the payload consists of 3-tuples formed by:
+     *  - topic length
+     *  - topic filter (string)
+     *  - qos
+     */
+    while (packet_length > 0) {
+        Subscription_Data *tdata = find_free_subscription_slot(ctx);
+        if (!tdata)
+            return MQTT_DECODE_ERROR;
+        tdata->client_id    = cdata->conn_id;
+        tdata->active       = true;
+        tdata->id           = id;
+        // Read length bytes of the first topic filter
+        tdata->topic_offset = memory_offset;
+
+        if (buffer_read_struct(buf, "H", &tdata->topic_size) != sizeof(uint16))
+            return MQTT_DECODE_ERROR;
+
+        packet_length -= sizeof(uint16);
+
+        if (buffer_read_binary(ptr, buf, tdata->topic_size) != tdata->topic_size)
+            return MQTT_DECODE_ERROR;
+
+        memory_offset += tdata->topic_size;
+        packet_length -= tdata->topic_size;
+
+        if (buffer_read_struct(buf, "B", &tdata->options) != sizeof(uint8))
+            return MQTT_DECODE_ERROR;
+
+        packet_length -= sizeof(uint8);
+        uint8 qos = tdata->options & 0x03;
+
+        // TODO not the right error
+        if (qos < AT_MOST_ONCE || qos > EXACTLY_ONCE)
+            r->reason_codes[r->topic_filter_count] = SUBACK_UNSPECIFIED_ERROR;
+        else
+            // TODO subscription logic (e.g. check for auth, QoS level etc)
+            r->reason_codes[r->topic_filter_count] = (SUBACK_Reason_Code)qos;
+
+        log_info("recv: SUBSCRIBE id: %d, cid: %d QoS: %d, rc: 0x%02X", id, tdata->client_id, qos,
+                 r->reason_codes[r->topic_filter_count]);
+
+        r->packet_id = id;
+        r->topic_filter_count++;
+    }
+
+    return MQTT_DECODE_SUCCESS;
+}

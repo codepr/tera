@@ -1,0 +1,13 @@
+IndentWidth: 4
+BreakBeforeBraces: Custom
+ColumnLimit: 100
+BraceWrapping:
+  AfterFunction: true
+AlignConsecutiveMacros:
+  Enabled: true
+  AcrossEmptyLines: true
+  AcrossComments: true
+AlignConsecutiveAssignments:
+  Enabled: true
+  AcrossEmptyLines: true
+  AcrossComments: true
