@@ -74,7 +74,7 @@ static uint32 calculate_publish_properties_length(const Publish_Properties *prop
 static MQTT_Decode_Result mqtt_publish_properties_read(Buffer *buf, Publish_Properties *props,
                                                        usize length)
 {
-    uint32 bytes_consumed = 0;
+    usize bytes_consumed = 0;
 
     // Initialize properties
     memset(props, 0, sizeof(Publish_Properties));
@@ -304,6 +304,7 @@ static void mqtt_publish_single_write(Tera_Context *ctx, Message_Data *message)
             if (header.bits.qos > AT_MOST_ONCE)
                 header.remaining_length += sizeof(uint16);
 
+            props->subscription_ids[props->subscription_id_count++] = subscription_data->id;
             uint32 properties_length = calculate_publish_properties_length(props);
             header.remaining_length += mqtt_variable_length_encoded_length(properties_length);
             header.remaining_length += properties_length;
@@ -332,8 +333,9 @@ static void mqtt_publish_single_write(Tera_Context *ctx, Message_Data *message)
                 written_bytes +=
                     buffer_write_binary(&cdata->send_buffer, payload, message->message_size);
 
-            log_info("sent: PUBLISH id: %d cid: %d (o%i) (%li bytes)", message->id,
-                     subscription_data->client_id, subscription_data->options, written_bytes);
+            log_info("sent: PUBLISH id: %d cid: %d sid: %d (o%i) (%li bytes)", message->id,
+                     subscription_data->client_id, subscription_data->id,
+                     subscription_data->options, written_bytes);
 
             written_bytes = 0;
         }

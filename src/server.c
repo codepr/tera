@@ -27,8 +27,8 @@ static void broadcast_reply(void)
         cd = &context.connection_data[i];
         if (buffer_is_empty(&cd->send_buffer))
             continue;
-        buffer_net_send(&cd->send_buffer, cd->socket_fd);
-        // log_info("%ld bytes out", buffer_net_send(&cd->send_buffer, cd->socket_fd));
+        isize bytes = buffer_net_send(&cd->send_buffer, cd->socket_fd);
+        log_info(">>>>: fd: %d, %ld bytes sent", cd->socket_fd, bytes);
     }
 }
 
@@ -69,7 +69,7 @@ static Transport_Result handle_client(int fd)
 
         // Check if we have at least fixed header (2 bytes minimum)
         if (buffer_available(buf) < 2) {
-            log_debug("Incomplete packet - need more data");
+            log_debug(">>>>: Incomplete packet - need more data");
             return TRANSPORT_INCOMPLETE_PACKET;
         }
 
@@ -123,12 +123,12 @@ static Transport_Result handle_client(int fd)
                 mqtt_pingresp_write(&context, client);
             break;
         default:
-            // log_error("unknown packet received");
+            log_error(">>>>: Unknown packet received");
+            buffer_skip(buf, buffer_available(buf));
             break;
         }
 
         broadcast_reply();
-        // buffer_net_send(&cdata->send_buffer, cdata->socket_fd);
     }
 
     buffer_reset(&cdata->send_buffer);
@@ -149,12 +149,12 @@ static void client_connection_add(int fd)
 
     void *read_buf                        = arena_alloc(&io_arena, MAX_PACKET_SIZE);
     if (!read_buf)
-        log_critical("bump arena OOM");
+        log_critical(">>>>: bump arena OOM");
     buffer_init(&context.connection_data[fd].recv_buffer, read_buf, MAX_PACKET_SIZE);
 
     void *write_buf = arena_alloc(&io_arena, MAX_PACKET_SIZE);
     if (!write_buf)
-        log_critical("bump arena OOM");
+        log_critical(">>>>: bump arena OOM");
     buffer_init(&context.connection_data[fd].send_buffer, write_buf, MAX_PACKET_SIZE);
 }
 
@@ -166,7 +166,7 @@ static void client_connection_shutdown(int fd)
     }
     context.connection_data[fd].socket_fd = -1;
     close(fd);
-    log_info("Client disconnected");
+    log_info(">>>>: Client disconnected");
 }
 
 static int server_start(int serverfd)
@@ -183,7 +183,7 @@ static int server_start(int serverfd)
     while (1) {
         numevents = iomux_wait(iomux, -1);
         if (numevents < 0)
-            log_critical("iomux error: %s", strerror(errno));
+            log_critical(">>>>: iomux error: %s", strerror(errno));
 
         for (int i = 0; i < numevents; ++i) {
             int fd = iomux_get_event_fd(iomux, i);
@@ -192,16 +192,16 @@ static int server_start(int serverfd)
                 // New connection
                 int clientfd = net_tcp_accept(serverfd, 1);
                 if (clientfd < 0) {
-                    log_error("accept() error: %s", strerror(errno));
+                    log_error(">>>>: accept() error: %s", strerror(errno));
                     continue;
                 }
 
                 if (context.connection_data[clientfd].socket_fd == clientfd) {
-                    log_warning("client connecting on an open socket");
+                    log_warning(">>>>: Client connecting on an open socket");
                     continue;
                 }
 
-                log_info("New client connected");
+                log_info(">>>>: New client connected");
                 iomux_add(iomux, clientfd, IOMUX_READ);
                 client_connection_add(clientfd);
 

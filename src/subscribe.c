@@ -68,7 +68,14 @@ MQTT_Decode_Result mqtt_subscribe_read(Tera_Context *ctx, const Client_Data *cda
     packet_length -= prop_length_bytes;
 
     // Skip Properties for now (should be parsed in full implementation)
-    if (buffer_skip(buf, properties_length) != properties_length)
+    if (buffer_skip(buf, sizeof(uint8)) != sizeof(uint8))
+        return MQTT_DECODE_ERROR;
+
+    usize sub_id        = 0;
+    usize sub_id_length = mqtt_variable_length_read(buf, &sub_id);
+
+    if (buffer_skip(buf, properties_length - sizeof(uint8) - sub_id_length) !=
+        properties_length - sizeof(uint8) - sub_id_length)
         return MQTT_DECODE_ERROR;
 
     packet_length -= properties_length;
@@ -86,7 +93,7 @@ MQTT_Decode_Result mqtt_subscribe_read(Tera_Context *ctx, const Client_Data *cda
             return MQTT_DECODE_ERROR;
         tdata->client_id    = cdata->conn_id;
         tdata->active       = true;
-        tdata->id           = id;
+        tdata->id           = sub_id;
         // Read length bytes of the first topic filter
         tdata->topic_offset = memory_offset;
 
@@ -114,8 +121,8 @@ MQTT_Decode_Result mqtt_subscribe_read(Tera_Context *ctx, const Client_Data *cda
             // TODO subscription logic (e.g. check for auth, QoS level etc)
             r->reason_codes[r->topic_filter_count] = (SUBACK_Reason_Code)qos;
 
-        log_info("recv: SUBSCRIBE id: %d, cid: %d QoS: %d, rc: 0x%02X", id, tdata->client_id, qos,
-                 r->reason_codes[r->topic_filter_count]);
+        log_info("recv: SUBSCRIBE id: %d, sid: %d, cid: %d QoS: %d, rc: 0x%02X", id, tdata->id,
+                 tdata->client_id, qos, r->reason_codes[r->topic_filter_count]);
 
         r->packet_id = id;
         r->topic_filter_count++;
