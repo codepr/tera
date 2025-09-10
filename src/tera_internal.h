@@ -19,17 +19,17 @@
 
 // Main pools of pre-allocated data
 // TODO use a bump allocator on heap
-static uint8 client_data_buffer[MAX_CLIENT_DATA_BUFFER_SIZE]   = {0};
-static Arena client_arena                                      = {0};
+extern uint8 client_data_buffer[];
+extern Arena client_arena;
 
-static uint8 message_data_buffer[MAX_MESSAGE_DATA_BUFFER_SIZE] = {0};
-static Arena message_arena                                     = {0};
+extern uint8 message_data_buffer[];
+extern Arena message_arena;
 
-static uint8 topic_data_buffer[MAX_TOPIC_DATA_BUFFER_SIZE]     = {0};
-static Arena topic_arena                                       = {0};
+extern uint8 topic_data_buffer[];
+extern Arena topic_arena;
 
-static uint8 io_buffer[MAX_MESSAGE_DATA_BUFFER_SIZE]           = {0};
-static Arena io_arena                                          = {0};
+extern uint8 io_buffer[];
+extern Arena io_arena;
 
 typedef struct client_data {
     // MQTT connect flags and ID
@@ -89,10 +89,23 @@ static inline void tera_context_init(Tera_Context *ctx)
 
     for (usize i = 0; i < MAX_PACKETS; ++i)
         ctx->message_data[i].active = false;
+
+    for (usize i = 0; i < MAX_PACKETS; ++i)
+        ctx->properties_data[i].active = false;
 }
 
 static inline uint8 *tera_topic_data_buffer_at(usize index) { return &topic_data_buffer[index]; }
 static inline uint8 *tera_message_data_buffer_at(usize index)
 {
     return &message_data_buffer[index];
+}
+
+static inline void arena_dump(Arena *a)
+{
+    for (int i = 0; i < a->curr_offset; ++i) {
+        printf("%02x ", a->buf[i]);
+        if ((i + 1) % 16 == 0)
+            printf("\n");
+    }
+    printf("\n");
 }

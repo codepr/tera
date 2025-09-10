@@ -67,18 +67,21 @@ MQTT_Decode_Result mqtt_subscribe_read(Tera_Context *ctx, const Client_Data *cda
 
     packet_length -= prop_length_bytes;
 
-    // Skip Properties for now (should be parsed in full implementation)
-    if (buffer_skip(buf, sizeof(uint8)) != sizeof(uint8))
-        return MQTT_DECODE_ERROR;
+    usize sub_id = 0;
+    if (properties_length > 0) {
 
-    usize sub_id        = 0;
-    usize sub_id_length = mqtt_variable_length_read(buf, &sub_id);
+        // Skip Properties for now (should be parsed in full implementation)
+        if (buffer_skip(buf, sizeof(uint8)) != sizeof(uint8))
+            return MQTT_DECODE_ERROR;
 
-    if (buffer_skip(buf, properties_length - sizeof(uint8) - sub_id_length) !=
-        properties_length - sizeof(uint8) - sub_id_length)
-        return MQTT_DECODE_ERROR;
+        usize sub_id_length = mqtt_variable_length_read(buf, &sub_id);
 
-    packet_length -= properties_length;
+        if (buffer_skip(buf, properties_length - sizeof(uint8) - sub_id_length) !=
+            properties_length - sizeof(uint8) - sub_id_length)
+            return MQTT_DECODE_ERROR;
+
+        packet_length -= properties_length;
+    }
 
     /*
      * Read in a loop all remaining bytes specified by len of the Fixed Header.
@@ -93,7 +96,7 @@ MQTT_Decode_Result mqtt_subscribe_read(Tera_Context *ctx, const Client_Data *cda
             return MQTT_DECODE_ERROR;
         tdata->client_id    = cdata->conn_id;
         tdata->active       = true;
-        tdata->id           = sub_id;
+        tdata->id           = sub_id > 0 ? sub_id : -1;
         // Read length bytes of the first topic filter
         tdata->topic_offset = memory_offset;
 

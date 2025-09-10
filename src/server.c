@@ -11,6 +11,18 @@
 #include <string.h>
 #include <unistd.h>
 
+uint8 client_data_buffer[MAX_CLIENT_DATA_BUFFER_SIZE]   = {0};
+Arena client_arena                                      = {0};
+
+uint8 message_data_buffer[MAX_MESSAGE_DATA_BUFFER_SIZE] = {0};
+Arena message_arena                                     = {0};
+
+uint8 topic_data_buffer[MAX_TOPIC_DATA_BUFFER_SIZE]     = {0};
+Arena topic_arena                                       = {0};
+
+uint8 io_buffer[MAX_MESSAGE_DATA_BUFFER_SIZE]           = {0};
+Arena io_arena                                          = {0};
+
 typedef enum {
     TRANSPORT_SUCCESS           = 0,
     TRANSPORT_EAGAIN            = 0,
@@ -27,8 +39,8 @@ static void broadcast_reply(void)
         cd = &context.connection_data[i];
         if (buffer_is_empty(&cd->send_buffer))
             continue;
-        isize bytes = buffer_net_send(&cd->send_buffer, cd->socket_fd);
-        log_info(">>>>: fd: %d, %ld bytes sent", cd->socket_fd, bytes);
+        buffer_net_send(&cd->send_buffer, cd->socket_fd);
+        // log_info(">>>>: fd: %d, %ld bytes sent", cd->socket_fd, bytes);
     }
 }
 

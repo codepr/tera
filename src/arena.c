@@ -1,7 +1,7 @@
 #include "arena.h"
 #include <string.h>
 
-#define DEFAULT_ALIGNMENT  (2 * sizeof(void *))
+#define DEFAULT_ALIGNMENT  (2 * sizeof(uint16))
 #define is_power_of_two(x) ((x != 0) && ((x & (x - 1)) == 0))
 
 void arena_init(Arena *a, void *buffer, usize buffer_size)
@@ -45,10 +45,16 @@ static void *arena_alloc_align(Arena *a, usize size, usize align)
     return NULL;
 }
 
-void *arena_alloc(Arena *a, usize size)
+uintptr_t arena_current_offset(const Arena *a)
 {
-    return arena_alloc_align(a, size, DEFAULT_ALIGNMENT);
+    uintptr_t curr_ptr = (uintptr_t)a->buf + (uintptr_t)a->curr_offset;
+    uintptr_t offset   = align_forward(curr_ptr, DEFAULT_ALIGNMENT);
+    offset -= (uintptr_t)a->buf;
+
+    return offset;
 }
+
+void *arena_alloc(Arena *a, usize size) { return arena_alloc_align(a, size, DEFAULT_ALIGNMENT); }
 
 void arena_reset(Arena *a)
 {

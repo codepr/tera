@@ -1,5 +1,6 @@
 #include "buffer.h"
 #include "bin.h"
+#include "mqtt.h"
 #include "net.h"
 #include <ctype.h>
 #include <errno.h>
@@ -334,7 +335,7 @@ usize buffer_write_struct(Buffer *buffer, const char *fmt, ...)
 
         case 's': // string
             s = va_arg(ap, char *);
-            memcpy(s, buf, maxstrlen);
+            memcpy(buf, s, maxstrlen);
             s[maxstrlen] = '\0';
             buffer->write_pos += maxstrlen;
             break;
@@ -367,4 +368,9 @@ usize buffer_write_binary(Buffer *buf, const void *src, usize len)
     char fmt[8] = {0};
     snprintf(fmt, 8, "%lus", len);
     return buffer_write_struct(buf, fmt, src);
+}
+
+usize buffer_write_utf8_string(Buffer *buf, const void *src, usize len)
+{
+    return buffer_write_struct(buf, "H", len) + buffer_write_binary(buf, src, len);
 }

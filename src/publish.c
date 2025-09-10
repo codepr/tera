@@ -44,22 +44,22 @@ static uint32 calculate_publish_properties_length(const Publish_Properties *prop
     }
 
     if (props->has_content_type) {
-        length += sizeof(uint8) + sizeof(uint32) +
+        length += sizeof(uint8) + sizeof(uint16) +
                   props->content_type_len; // Property ID + length + string
     }
 
     if (props->has_response_topic) {
-        length += sizeof(uint8) + sizeof(uint32) +
+        length += sizeof(uint8) + sizeof(uint16) +
                   props->response_topic_len; // Property ID + length + string
     }
 
     if (props->has_correlation_data) {
-        length += sizeof(uint8) + sizeof(uint32) +
+        length += sizeof(uint8) + sizeof(uint16) +
                   props->correlation_data_len; // Property ID + length + data
     }
 
     if (props->has_topic_alias) {
-        length += sizeof(uint8) + sizeof(uint32); // Property ID + 2 byte value
+        length += sizeof(uint8) + sizeof(uint16); // Property ID + 2 byte value
     }
 
     // Subscription Identifiers (multiple allowed!)
@@ -160,24 +160,23 @@ MQTT_Decode_Result mqtt_publish_read(Tera_Context *ctx, const Client_Data *cdata
     message->retain       = header.bits.retain;
     message->dup          = header.bits.dup;
 
-    usize memory_offset   = ctx->message_arena->curr_offset;
-    uint8 *ptr            = arena_alloc(ctx->message_arena, header.remaining_length);
+    usize memory_offset   = arena_current_offset(ctx->message_arena);
+    message->topic_offset = memory_offset;
+    if (buffer_read_struct(buf, "H", &message->topic_size) != sizeof(uint16))
+        return MQTT_DECODE_ERROR;
+
+    consumed += sizeof(uint16);
+
+    uint8 *ptr = arena_alloc(ctx->message_arena, message->topic_size);
     if (!ptr) {
         // TODO handle case
         log_critical("bump arena OOM");
     }
 
-    message->topic_offset = memory_offset;
-    if (buffer_read_struct(buf, "H", &message->topic_size) != sizeof(uint16))
-        return MQTT_DECODE_ERROR;
-    consumed += sizeof(uint16);
-
     if (buffer_read_binary(ptr, buf, message->topic_size) != message->topic_size)
         return MQTT_DECODE_ERROR;
-    consumed += message->topic_size;
 
-    ptr += message->topic_size;
-    memory_offset += message->topic_size;
+    consumed += message->topic_size;
 
     if (message->qos > AT_MOST_ONCE) {
         if (buffer_read_struct(buf, "H", &message->id) != sizeof(uint16))
@@ -194,19 +193,23 @@ MQTT_Decode_Result mqtt_publish_read(Tera_Context *ctx, const Client_Data *cdata
     // Properties
     usize property_id         = 0;
     Publish_Properties *props = find_free_property_slot(ctx, &property_id);
-    if (mqtt_publish_properties_read(buf, props, properties_length) != properties_length)
+    if (mqtt_publish_properties_read(buf, props, properties_length) != MQTT_DECODE_SUCCESS)
         return MQTT_DECODE_ERROR;
     consumed += properties_length;
 
     message->property_id    = property_id;
-    message->message_offset = memory_offset;
+    message->message_offset = arena_current_offset(ctx->message_arena);
     message->message_size   = header.remaining_length - consumed;
+
+    ptr                     = arena_alloc(ctx->message_arena, message->message_size);
+    if (!ptr) {
+        // TODO handle case
+        log_critical("bump arena OOM");
+    }
 
     if (message->message_size > 0) {
         if (buffer_read_binary(ptr, buf, message->message_size) != message->message_size)
             return MQTT_DECODE_ERROR;
-        ptr += message->message_size;
-        memory_offset += message->message_size;
         consumed += message->message_size;
     }
 
@@ -240,24 +243,29 @@ static isize mqtt_publish_properties_write(Buffer *buf, const Publish_Properties
 
     if (props->has_content_type) {
         bytes_written += buffer_write_struct(buf, "B", PUBLISH_PROP_CONTENT_TYPE);
-        bytes_written += buffer_write_binary(buf, props->content_type, props->content_type_len);
+        bytes_written +=
+            buffer_write_utf8_string(buf, props->content_type, props->content_type_len);
     }
 
     if (props->has_response_topic) {
         bytes_written += buffer_write_struct(buf, "B", PUBLISH_PROP_RESPONSE_TOPIC);
-        bytes_written += buffer_write_binary(buf, props->response_topic, props->response_topic_len);
+        bytes_written +=
+            buffer_write_utf8_string(buf, props->response_topic, props->response_topic_len);
     }
 
     if (props->has_correlation_data) {
         bytes_written += buffer_write_struct(buf, "B", PUBLISH_PROP_CORRELATION_DATA);
         bytes_written +=
-            buffer_write_binary(buf, props->correlation_data, props->correlation_data_len);
+            buffer_write_utf8_string(buf, props->correlation_data, props->correlation_data_len);
     }
 
     if (props->has_topic_alias) {
         bytes_written +=
             buffer_write_struct(buf, "BH", PUBLISH_PROP_TOPIC_ALIAS, props->topic_alias);
     }
+
+    if (props->subscription_id_count == 0)
+        bytes_written += buffer_write_struct(buf, "B", 0);
 
     // Write Subscription Identifiers
     for (int i = 0; i < props->subscription_id_count; i++) {
@@ -268,11 +276,28 @@ static isize mqtt_publish_properties_write(Buffer *buf, const Publish_Properties
     return bytes_written;
 }
 
+static int publish_properties_add_subscription(Publish_Properties *props, int16 subscription_id)
+{
+    if (subscription_id < 0)
+        return 0;
+    if (props->subscription_id_count >= MAX_SUBSCRIPTION_IDS)
+        return -1;
+    for (int i = 0; i < props->subscription_id_count; i++)
+        if (props->subscription_ids[i] == subscription_id)
+            return 0;
+
+    props->subscription_ids[props->subscription_id_count++] = subscription_id;
+    return 0;
+}
+
 static void mqtt_publish_single_write(Tera_Context *ctx, Message_Data *message)
 {
+
     isize written_bytes       = 0;
     Publish_Properties *props = &ctx->properties_data[message->property_id];
     const char *publish_topic = (const char *)tera_message_data_buffer_at(message->topic_offset);
+    const uint8 *payload      = tera_message_data_buffer_at(message->message_offset);
+    Buffer *buf               = NULL;
 
     for (usize i = 0; i < MAX_SUBSCRIPTIONS; ++i) {
         if (!ctx->subscription_data[i].active)
@@ -285,8 +310,8 @@ static void mqtt_publish_single_write(Tera_Context *ctx, Message_Data *message)
         if (message->topic_size == subscription_data->topic_size &&
             strncmp(topic, publish_topic, message->topic_size) == 0) {
 
-            Connection_Data *cdata = &ctx->connection_data[subscription_data->client_id];
-            buffer_reset(&cdata->send_buffer);
+            buf = &ctx->connection_data[subscription_data->client_id].send_buffer;
+            buffer_reset(buf);
 
             // Remaining Variable Length
             // - len of topic uint16
@@ -304,38 +329,36 @@ static void mqtt_publish_single_write(Tera_Context *ctx, Message_Data *message)
             if (header.bits.qos > AT_MOST_ONCE)
                 header.remaining_length += sizeof(uint16);
 
-            props->subscription_ids[props->subscription_id_count++] = subscription_data->id;
+            publish_properties_add_subscription(props, subscription_data->id);
             uint32 properties_length = calculate_publish_properties_length(props);
             header.remaining_length += mqtt_variable_length_encoded_length(properties_length);
             header.remaining_length += properties_length;
 
-            isize fixed_header_len = mqtt_fixed_header_write(&cdata->send_buffer, &header);
+            isize fixed_header_len = mqtt_fixed_header_write(buf, &header);
             if (fixed_header_len < 0) {
                 log_error("Failed to write packet header");
             } else {
                 written_bytes += fixed_header_len;
+
+                // Topic Name
+                written_bytes += buffer_write_utf8_string(buf, topic, message->topic_size);
+
+                // Packet identifier
+                if (header.bits.qos > AT_MOST_ONCE)
+                    written_bytes += buffer_write_struct(buf, "H", message->id);
+
+                // Properties
+                written_bytes += mqtt_variable_length_write(buf, properties_length);
+                written_bytes += mqtt_publish_properties_write(buf, props);
+
+                // Payload
+                if (message->message_size > 0)
+                    written_bytes += buffer_write_binary(buf, payload, message->message_size);
+
+                log_info("sent: PUBLISH id: %d cid: %d sid: %d (o%i) (%li bytes)", message->id,
+                         subscription_data->client_id, subscription_data->id,
+                         subscription_data->options, written_bytes);
             }
-
-            // Topic Name
-            written_bytes += buffer_write_binary(&cdata->send_buffer, topic, message->topic_size);
-
-            // Packet identifier
-            if (header.bits.qos > AT_MOST_ONCE)
-                written_bytes += buffer_write_struct(&cdata->send_buffer, "H", message->id);
-
-            // Properties
-            written_bytes += mqtt_variable_length_write(&cdata->send_buffer, properties_length);
-            written_bytes += mqtt_publish_properties_write(&cdata->send_buffer, props);
-
-            // Payload
-            uint8 *payload = tera_message_data_buffer_at(message->message_offset);
-            if (message->message_size > 0)
-                written_bytes +=
-                    buffer_write_binary(&cdata->send_buffer, payload, message->message_size);
-
-            log_info("sent: PUBLISH id: %d cid: %d sid: %d (o%i) (%li bytes)", message->id,
-                     subscription_data->client_id, subscription_data->id,
-                     subscription_data->options, written_bytes);
 
             written_bytes = 0;
         }

@@ -29,3 +29,4 @@ usize buffer_read_struct(Buffer *buffer, const char *fmt, ...);
 usize buffer_write_struct(Buffer *buffer, const char *fmt, ...);
 usize buffer_read_binary(void *dst, Buffer *buf, usize len);
 usize buffer_write_binary(Buffer *buf, const void *src, usize len);
+usize buffer_write_utf8_string(Buffer *buf, const void *src, usize len);

@@ -109,3 +109,15 @@ usize mqtt_variable_length_write(Buffer *buf, usize len)
 
     return bytes;
 }
+
+void mqtt_message_dump(const Buffer *buf, bool read)
+{
+    int limit = read ? buf->read_pos : buf->write_pos;
+    log_info("Packet dump: ");
+    for (int i = 0; i < limit; i++) {
+        printf("%02x ", buf->data[i]);
+        if ((i + 1) % 16 == 0)
+            printf("\n");
+    }
+    printf("\n");
+}

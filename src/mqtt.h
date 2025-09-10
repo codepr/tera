@@ -116,7 +116,7 @@ typedef struct subscription_data {
     uint16 client_id; // Index of the subscribing client in Client_Data array
     uint16 topic_offset;
     uint16 topic_size;
-    uint16 id;
+    int16 id;
     uint8 options;
     bool active;
 } Subscription_Data;
@@ -323,6 +323,9 @@ static inline isize mqtt_fixed_header_write(Buffer *buf, Fixed_Header *header)
 MQTT_Decode_Result mqtt_connect_read(Tera_Context *ctx, Client_Data *cdata);
 
 MQTT_Decode_Result mqtt_disconnect_read(Tera_Context *ctx, const Client_Data *cdata);
+
+// Debugging utilities
+void mqtt_message_dump(const Buffer *buf, bool read);
 
 #define MAX_SUBSCRIPTION_IDS 10
 
