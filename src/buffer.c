@@ -1,6 +1,5 @@
 #include "buffer.h"
 #include "bin.h"
-#include "mqtt.h"
 #include "net.h"
 #include <ctype.h>
 #include <errno.h>

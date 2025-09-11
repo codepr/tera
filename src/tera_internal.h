@@ -43,7 +43,6 @@ typedef struct client_data {
     uint16 conn_id;
     uint16 keepalive;
     uint8 connect_flags;
-    bool clean_session;
 
     // Byte string sizes in memory
     uint8 client_id_size;
@@ -59,7 +58,6 @@ typedef struct connection_data {
     Buffer send_buffer;
 } Connection_Data;
 
-typedef uint32 Message_ID;
 typedef struct tera_context {
     Arena *io_arena;
     Arena *client_arena;
@@ -71,6 +69,48 @@ typedef struct tera_context {
     Publish_Properties properties_data[MAX_PACKETS];
     Subscription_Data subscription_data[MAX_SUBSCRIPTIONS];
 } Tera_Context;
+
+typedef union data_flags {
+    uint8 value;
+    struct {
+        uint8 retain : 1;
+        uint8 qos : 2;
+        uint8 dup : 1;
+        uint8 active : 1;
+        uint8 acknowledged : 1;
+        uint8 reserved : 2;
+    } bits;
+} Data_Flags;
+
+static inline Data_Flags data_flags_get(uint8 byte)
+{
+    return (Data_Flags){.bits = {.retain       = (uint8)(((byte) >> 0) & 0x01),
+                                 .qos          = (uint8)(((byte) >> 1) & 0x03),
+                                 .dup          = (uint8)(((byte) >> 3) & 0x01),
+                                 .active       = (uint8)(((byte) >> 4) & 0x01),
+                                 .acknowledged = (uint8)(((byte) >> 5) & 0x01)}};
+}
+
+static inline Data_Flags data_flags_set(bool retain, uint8 qos, bool dup, bool active,
+                                        bool acknowledged)
+{
+    return (Data_Flags){.bits = {.retain       = retain,
+                                 .qos          = qos,
+                                 .dup          = dup,
+                                 .active       = active,
+                                 .acknowledged = acknowledged}};
+}
+
+static inline uint8 data_flags_active_get(uint8 byte) { return (((byte) >> 4) & 0x01); }
+static inline uint8 data_flags_active_set(uint8 byte, uint8 value)
+{
+    return (byte & ~(0x01 << 0x04)) | ((value & 0x01) << 0x04);
+}
+static inline uint8 data_flags_acknowledged_get(uint8 byte) { return (((byte) >> 5) & 0x01); }
+static inline uint8 data_flags_acknowledged_set(uint8 byte, uint8 value)
+{
+    return (byte & ~(0x05 << 0x01)) | ((value & 0x01) << 0x05);
+}
 
 static inline void tera_context_init(Tera_Context *ctx)
 {
@@ -84,11 +124,15 @@ static inline void tera_context_init(Tera_Context *ctx)
     ctx->client_arena  = &client_arena;
     ctx->message_arena = &message_arena;
 
-    for (usize i = 0; i < MAX_SUBSCRIPTIONS; ++i)
+    for (usize i = 0; i < MAX_SUBSCRIPTIONS; ++i) {
         ctx->subscription_data[i].active = false;
+        ctx->subscription_data[i].mid    = 1;
+    }
 
-    for (usize i = 0; i < MAX_PACKETS; ++i)
-        ctx->message_data[i].active = false;
+    for (usize i = 0; i < MAX_PACKETS; ++i) {
+        ctx->message_data[i].options = 0;
+        ctx->message_data[i].options = data_flags_acknowledged_set(ctx->message_data[i].options, 1);
+    }
 
     for (usize i = 0; i < MAX_PACKETS; ++i)
         ctx->properties_data[i].active = false;

@@ -37,41 +37,41 @@ typedef enum qos_level { AT_MOST_ONCE, AT_LEAST_ONCE, EXACTLY_ONCE } QoS_Level;
  * Field:   username password will_retain will_qos(1) will_qos(0) will clean_start reserved
  */
 
-static inline int mqtt_clean_session_get(uint8 byte) { return (((byte) >> 1) & 0x01); }
-static inline int mqtt_will_get(uint8 byte) { return (((byte) >> 2) & 0x01); }
-static inline int mqtt_will_qos_get(uint8 byte) { return (((byte) >> 3) & 0x03); }
-static inline int mqtt_will_retain_get(uint8 byte) { return (((byte) >> 5) & 0x01); }
-static inline int mqtt_password_get(uint8 byte) { return (((byte) >> 6) & 0x01); }
-static inline int mqtt_username_get(uint8 byte) { return (((byte) >> 7) & 0x01); }
+static inline uint8 mqtt_clean_session_get(uint8 byte) { return (((byte) >> 1) & 0x01); }
+static inline uint8 mqtt_will_get(uint8 byte) { return (((byte) >> 2) & 0x01); }
+static inline uint8 mqtt_will_qos_get(uint8 byte) { return (((byte) >> 3) & 0x03); }
+static inline uint8 mqtt_will_retain_get(uint8 byte) { return (((byte) >> 5) & 0x01); }
+static inline uint8 mqtt_password_get(uint8 byte) { return (((byte) >> 6) & 0x01); }
+static inline uint8 mqtt_username_get(uint8 byte) { return (((byte) >> 7) & 0x01); }
 
 // Connect header set MQTT bitfield flags
 
-static inline int mqtt_clean_session_set(uint8 byte, uint8 value)
+static inline uint8 mqtt_clean_session_set(uint8 byte, uint8 value)
 {
     return ((byte) & ~0x02) | (((value) & 0x01) << 1);
 }
 
-static inline int mqtt_will_set(uint8 byte, uint8 value)
+static inline uint8 mqtt_will_set(uint8 byte, uint8 value)
 {
     return ((byte) & ~0x04) | (((value) & 0x01) << 2);
 }
 
-static inline int mqtt_will_qos_set(uint8 byte, uint8 value)
+static inline uint8 mqtt_will_qos_set(uint8 byte, uint8 value)
 {
     return ((byte) & ~0x18) | (((value) & 0x03) << 3);
 }
 
-static inline int mqtt_will_retain_set(uint8 byte, uint8 value)
+static inline uint8 mqtt_will_retain_set(uint8 byte, uint8 value)
 {
     return ((byte) & ~0x20) | (((value) & 0x01) << 5);
 }
 
-static inline int mqtt_password_set(uint8 byte, uint8 value)
+static inline uint8 mqtt_password_set(uint8 byte, uint8 value)
 {
     return ((byte) & ~0x40) | (((value) & 0x01) << 6);
 }
 
-static inline int mqtt_username_set(uint8 byte, uint8 value)
+static inline uint8 mqtt_username_set(uint8 byte, uint8 value)
 {
     return ((byte) & ~0x80) | (((value) & 0x01) << 7);
 }
@@ -85,29 +85,29 @@ static inline int mqtt_username_set(uint8 byte, uint8 value)
  * Bit:     3    2       1       0
  * Field:   DUP QoS(1) QoS(0) RETAIN
  */
-static inline int mqtt_retain_get(uint8 byte) { return (((byte) >> 0) & 0x01); }
-static inline int mqtt_qos_get(uint8 byte) { return (((byte) >> 1) & 0x03); }
-static inline int mqtt_dup_get(uint8 byte) { return (((byte) >> 3) & 0x01); }
-static inline int mqtt_type_get(uint8 byte) { return (((byte) >> 4) & 0x0F); }
+static inline uint8 mqtt_retain_get(uint8 byte) { return (((byte) >> 0) & 0x01); }
+static inline uint8 mqtt_qos_get(uint8 byte) { return (((byte) >> 1) & 0x03); }
+static inline uint8 mqtt_dup_get(uint8 byte) { return (((byte) >> 3) & 0x01); }
+static inline uint8 mqtt_type_get(uint8 byte) { return (((byte) >> 4) & 0x0F); }
 
 // Variable header set MQTT bitfield flags
 
-static inline int mqtt_retain_set(uint8 byte, uint8 value)
+static inline uint8 mqtt_retain_set(uint8 byte, uint8 value)
 {
     return ((byte) & ~0x01) | ((value) & 0x01);
 }
 
-static inline int mqtt_qos_set(uint8 byte, uint8 value)
+static inline uint8 mqtt_qos_set(uint8 byte, uint8 value)
 {
     return ((byte) & ~0x06) | (((value) & 0x03) << 1);
 }
 
-static inline int mqtt_dup_set(uint8 byte, uint8 value)
+static inline uint8 mqtt_dup_set(uint8 byte, uint8 value)
 {
     return ((byte) & ~0x08) | (((value) & 0x01) << 3);
 }
 
-static inline int mqtt_type_set(uint8 byte, uint8 value)
+static inline uint8 mqtt_type_set(uint8 byte, uint8 value)
 {
     return ((byte) & ~0xF0) | (((value) & 0x0F) << 4);
 }
@@ -116,6 +116,7 @@ typedef struct subscription_data {
     uint16 client_id; // Index of the subscribing client in Client_Data array
     uint16 topic_offset;
     uint16 topic_size;
+    uint16 mid;
     int16 id;
     uint8 options;
     bool active;
@@ -128,10 +129,7 @@ typedef struct message_data {
     uint16 topic_offset;
     uint16 message_size;
     uint16 message_offset;
-    uint8 qos;
-    uint8 retain;
-    uint8 dup;
-    bool active;
+    uint8 options;
 } Message_Data;
 
 typedef struct client_data Client_Data;
@@ -452,7 +450,7 @@ MQTT_Decode_Result mqtt_unsubscribe_read(Tera_Context *ctx, const Client_Data *c
 
 MQTT_Decode_Result mqtt_pingreq_read(Tera_Context *ctx, const Client_Data *cdata);
 
-MQTT_Decode_Result mqtt_ack_read(Tera_Context *ctx, const Client_Data *cdata, Arena *arena);
+MQTT_Decode_Result mqtt_ack_read(Tera_Context *ctx, const Client_Data *cdata, int16 *mid);
 
 typedef enum {
     CONNACK_SUCCESS                      = 0x00,
@@ -479,8 +477,10 @@ typedef enum {
 
 void mqtt_suback_write(Tera_Context *ctx, const Client_Data *cdata, const Subscribe_Result *r);
 
-void mqtt_publish_write(Tera_Context *ctx);
+void mqtt_publish_write(Tera_Context *ctx, const Client_Data *cdata);
 
 void mqtt_pingresp_write(Tera_Context *ctx, const Client_Data *cdata);
 
-void mqtt_ack_write(Buffer *buf);
+void mqtt_ack_write(Tera_Context *ctx, const Client_Data *cdata, Packet_Type ack_type, int16 id);
+
+uint16 mqtt_subscription_next_mid(Subscription_Data *subscription_data);

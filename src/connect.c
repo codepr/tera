@@ -81,8 +81,10 @@ MQTT_Decode_Result mqtt_connect_read(Tera_Context *ctx, Client_Data *cdata)
     // === PAYLOAD ===
 
     // 1. Client Identifier
-    if (buffer_read_struct(buf, "H", &cdata->client_id_size) != sizeof(uint16))
+    uint16 client_id_size = 0;
+    if (buffer_read_struct(buf, "H", &client_id_size) != sizeof(uint16))
         return MQTT_DECODE_ERROR;
+    cdata->client_id_size   = client_id_size;
     cdata->client_id_offset = memory_offset;
 
     // Read the client ID

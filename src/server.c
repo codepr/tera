@@ -32,6 +32,22 @@ typedef enum {
 
 static Tera_Context context = {0};
 
+// TODO can use a more efficient way then linear scan
+static void cleanup_message(int16 mid)
+{
+    for (usize i = 0; i < MAX_PACKETS; ++i) {
+        if (!data_flags_active_get(context.message_data[i].options))
+            continue;
+
+        if (context.message_data[i].id == mid) {
+            context.message_data[i].options =
+                data_flags_acknowledged_set(context.message_data[i].options, 1);
+            context.message_data[i].options =
+                data_flags_active_set(context.message_data[i].options, 0);
+        }
+    }
+}
+
 static void broadcast_reply(void)
 {
     Connection_Data *cd = NULL;
@@ -123,10 +139,41 @@ static Transport_Result handle_client(int fd)
                 mqtt_suback_write(&context, client, &sub_result);
             break;
         }
+        case UNSUBSCRIBE:
+            // TODO
+            break;
         case PUBLISH: {
             result = mqtt_publish_read(&context, client);
             if (result == MQTT_DECODE_SUCCESS)
-                mqtt_publish_write(&context);
+                mqtt_publish_write(&context, client);
+            break;
+        }
+        case PUBACK: {
+            int16 mid = 0;
+            mqtt_ack_read(&context, client, &mid);
+            cleanup_message(mid);
+            break;
+        }
+        case PUBREC: {
+            int16 mid = 0;
+            result    = mqtt_ack_read(&context, client, &mid);
+            if (result == MQTT_DECODE_SUCCESS)
+                mqtt_ack_write(&context, client, PUBREL, mid);
+            break;
+        }
+        case PUBREL: {
+            int16 mid = 0;
+            result    = mqtt_ack_read(&context, client, &mid);
+            if (result == MQTT_DECODE_SUCCESS) {
+                mqtt_ack_write(&context, client, PUBCOMP, mid);
+                cleanup_message(mid);
+            }
+            break;
+        }
+        case PUBCOMP: {
+            int16 mid = 0;
+            mqtt_ack_read(&context, client, &mid);
+            cleanup_message(mid);
             break;
         }
         case PINGREQ:
@@ -135,7 +182,7 @@ static Transport_Result handle_client(int fd)
                 mqtt_pingresp_write(&context, client);
             break;
         default:
-            log_error(">>>>: Unknown packet received");
+            log_error(">>>>: Unknown packet received %d (%ld)", mqtt_type_get(header), nread);
             buffer_skip(buf, buffer_available(buf));
             break;
         }

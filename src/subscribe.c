@@ -133,3 +133,9 @@ MQTT_Decode_Result mqtt_subscribe_read(Tera_Context *ctx, const Client_Data *cda
 
     return MQTT_DECODE_SUCCESS;
 }
+
+uint16 mqtt_subscription_next_mid(Subscription_Data *subscription_data)
+{
+    // TODO check for boundary
+    return subscription_data->mid++;
+}

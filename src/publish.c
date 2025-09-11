@@ -5,15 +5,19 @@
 
 static Message_Data *find_free_message_slot(Tera_Context *ctx)
 {
+    Message_Data *m = NULL;
     for (usize i = 0; i < MAX_PACKETS; ++i) {
-        if (ctx->message_data[i].active)
+        m = &ctx->message_data[i];
+        if (data_flags_active_get(m->options))
             continue;
 
-        ctx->message_data[i].active = true;
-        return &ctx->message_data[i];
+        Data_Flags flags = data_flags_set(false, 0, false, true, true);
+        m->options       = flags.value;
+
+        break;
     }
 
-    return NULL;
+    return m;
 }
 
 static Publish_Properties *find_free_property_slot(Tera_Context *ctx, usize *property_id)
@@ -156,9 +160,9 @@ MQTT_Decode_Result mqtt_publish_read(Tera_Context *ctx, const Client_Data *cdata
     }
 
     Message_Data *message = find_free_message_slot(ctx);
-    message->qos          = header.bits.qos;
-    message->retain       = header.bits.retain;
-    message->dup          = header.bits.dup;
+    Data_Flags flags =
+        data_flags_set(header.bits.retain, header.bits.qos, header.bits.dup, true, true);
+    message->options      = flags.value;
 
     usize memory_offset   = arena_current_offset(ctx->message_arena);
     message->topic_offset = memory_offset;
@@ -178,7 +182,7 @@ MQTT_Decode_Result mqtt_publish_read(Tera_Context *ctx, const Client_Data *cdata
 
     consumed += message->topic_size;
 
-    if (message->qos > AT_MOST_ONCE) {
+    if (header.bits.qos > AT_MOST_ONCE) {
         if (buffer_read_struct(buf, "H", &message->id) != sizeof(uint16))
             return MQTT_DECODE_ERROR;
         consumed += sizeof(uint16);
@@ -220,8 +224,8 @@ MQTT_Decode_Result mqtt_publish_read(Tera_Context *ctx, const Client_Data *cdata
         return MQTT_DECODE_ERROR;
     }
 
-    log_info("recv: PUBLISH id: %d, dup: %d, retain: %d  qos=%d", message->id, message->dup,
-             message->retain, message->qos);
+    log_info("recv: PUBLISH id: %d, dup: %d, retain: %d  qos=%d", message->id, header.bits.dup,
+             header.bits.retain, header.bits.qos);
 
     return MQTT_DECODE_SUCCESS;
 }
@@ -290,14 +294,15 @@ static int publish_properties_add_subscription(Publish_Properties *props, int16 
     return 0;
 }
 
-static void mqtt_publish_single_write(Tera_Context *ctx, Message_Data *message)
+static void mqtt_publish_single_write(Tera_Context *ctx, Message_Data *message,
+                                      const Client_Data *cdata)
 {
-
     isize written_bytes       = 0;
     Publish_Properties *props = &ctx->properties_data[message->property_id];
     const char *publish_topic = (const char *)tera_message_data_buffer_at(message->topic_offset);
     const uint8 *payload      = tera_message_data_buffer_at(message->message_offset);
     Buffer *buf               = NULL;
+    Data_Flags message_flags  = data_flags_get(message->options);
 
     for (usize i = 0; i < MAX_SUBSCRIPTIONS; ++i) {
         if (!ctx->subscription_data[i].active)
@@ -313,13 +318,22 @@ static void mqtt_publish_single_write(Tera_Context *ctx, Message_Data *message)
             buf = &ctx->connection_data[subscription_data->client_id].send_buffer;
             buffer_reset(buf);
 
+            /*
+             * Update QoS according to subscriber's one, following MQTT
+             * rules: The min between the original QoS and the subscriber
+             * QoS
+             */
+            uint8 granted_qos = subscription_data->options & 0x03;
+            uint8 qos =
+                message_flags.bits.qos >= granted_qos ? granted_qos : message_flags.bits.qos;
+
             // Remaining Variable Length
             // - len of topic uint16
             // - packet id uint16
             // - properties length
             // - topic size in bytes
             // - message size in bytes
-            Fixed_Header header = {.bits.qos         = 0,
+            Fixed_Header header = {.bits.qos         = qos,
                                    .bits.dup         = 0,
                                    .bits.retain      = 0,
                                    .bits.type        = PUBLISH,
@@ -344,8 +358,9 @@ static void mqtt_publish_single_write(Tera_Context *ctx, Message_Data *message)
                 written_bytes += buffer_write_utf8_string(buf, topic, message->topic_size);
 
                 // Packet identifier
+                uint16 mid = mqtt_subscription_next_mid(subscription_data);
                 if (header.bits.qos > AT_MOST_ONCE)
-                    written_bytes += buffer_write_struct(buf, "H", message->id);
+                    written_bytes += buffer_write_struct(buf, "H", mid);
 
                 // Properties
                 written_bytes += mqtt_variable_length_write(buf, properties_length);
@@ -355,25 +370,41 @@ static void mqtt_publish_single_write(Tera_Context *ctx, Message_Data *message)
                 if (message->message_size > 0)
                     written_bytes += buffer_write_binary(buf, payload, message->message_size);
 
-                log_info("sent: PUBLISH id: %d cid: %d sid: %d (o%i) (%li bytes)", message->id,
-                         subscription_data->client_id, subscription_data->id,
-                         subscription_data->options, written_bytes);
+                log_info("sent: PUBLISH id: %d cid: %d sid: %d qos: %d (%li bytes)", mid,
+                         subscription_data->client_id, subscription_data->id, qos, written_bytes);
             }
 
             written_bytes = 0;
         }
     }
 
-    if (message->qos == AT_MOST_ONCE)
-        message->active = false;
+    // TODO not great to do this here
+    switch (message_flags.bits.qos) {
+    case AT_MOST_ONCE:
+        message->options = data_flags_active_set(message->options, 0);
+        message->options = data_flags_acknowledged_set(message->options, 1);
+        break;
+    case AT_LEAST_ONCE:
+        mqtt_ack_write(ctx, cdata, PUBACK, message->id);
+        message->options = data_flags_active_set(message->options, 0);
+        message->options = data_flags_acknowledged_set(message->options, 1);
+        break;
+    case EXACTLY_ONCE:
+        mqtt_ack_write(ctx, cdata, PUBREC, message->id);
+        message->options = data_flags_acknowledged_set(message->options, 0);
+        break;
+    }
 }
 
-void mqtt_publish_write(Tera_Context *ctx)
+void mqtt_publish_write(Tera_Context *ctx, const Client_Data *cdata)
 {
     for (usize i = 0; i < MAX_PACKETS; ++i) {
-        if (!ctx->message_data[i].active)
+        if (!data_flags_active_get(ctx->message_data[i].options))
             continue;
 
-        mqtt_publish_single_write(ctx, &ctx->message_data[i]);
+        if (!data_flags_acknowledged_get(ctx->message_data[i].options))
+            continue;
+
+        mqtt_publish_single_write(ctx, &ctx->message_data[i], cdata);
     }
 }
