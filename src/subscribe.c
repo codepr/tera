@@ -49,7 +49,7 @@ MQTT_Decode_Result mqtt_subscribe_read(Tera_Context *ctx, const Client_Data *cda
         return MQTT_DECODE_INCOMPLETE;
     }
 
-    usize memory_offset = ctx->topic_arena->curr_offset;
+    usize memory_offset = arena_current_offset(ctx->topic_arena);
     uint8 *ptr          = arena_alloc(ctx->topic_arena, packet_length);
     if (!ptr) {
         // TODO handle case

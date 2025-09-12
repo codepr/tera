@@ -56,7 +56,6 @@ static void broadcast_reply(void)
         if (buffer_is_empty(&cd->send_buffer))
             continue;
         buffer_net_send(&cd->send_buffer, cd->socket_fd);
-        // log_info(">>>>: fd: %d, %ld bytes sent", cd->socket_fd, bytes);
     }
 }
 

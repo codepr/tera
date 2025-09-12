@@ -59,10 +59,13 @@ typedef struct connection_data {
 } Connection_Data;
 
 typedef struct tera_context {
+    // Memory arenas, separated by entity
     Arena *io_arena;
     Arena *client_arena;
     Arena *topic_arena;
     Arena *message_arena;
+
+    // Data arrays
     Connection_Data connection_data[MAX_CLIENTS];
     Client_Data client_data[MAX_CLIENTS];
     Message_Data message_data[MAX_PACKETS];
@@ -142,14 +145,4 @@ static inline uint8 *tera_topic_data_buffer_at(usize index) { return &topic_data
 static inline uint8 *tera_message_data_buffer_at(usize index)
 {
     return &message_data_buffer[index];
-}
-
-static inline void arena_dump(Arena *a)
-{
-    for (int i = 0; i < a->curr_offset; ++i) {
-        printf("%02x ", a->buf[i]);
-        if ((i + 1) % 16 == 0)
-            printf("\n");
-    }
-    printf("\n");
 }

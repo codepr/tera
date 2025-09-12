@@ -61,3 +61,13 @@ void arena_reset(Arena *a)
     a->curr_offset = 0;
     a->prev_offset = 0;
 }
+
+void arena_dump(const Arena *a)
+{
+    for (int i = 0; i < a->curr_offset; ++i) {
+        printf("%02x ", a->buf[i]);
+        if ((i + 1) % 16 == 0)
+            printf("\n");
+    }
+    printf("\n");
+}
