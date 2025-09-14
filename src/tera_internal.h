@@ -52,11 +52,30 @@ typedef struct client_data {
     uint8 will_message_size;
 } Client_Data;
 
+/*
+ * Wrapper structure around a connected client, each connection can be a publisher
+ * or a subscriber.
+ * As of now, no allocations will occur, just a big pool of memory at the
+ * start of the application will serve us a client pool, read and write buffers
+ * are initialized at the start.
+ */
 typedef struct connection_data {
-    int socket_fd;
     Buffer recv_buffer;
     Buffer send_buffer;
+    int socket_fd;
+    bool connected;
 } Connection_Data;
+
+#define MAX_RETRY_ATTEMPTS 5
+#define RETRY_TIMEOUT_MS   20000
+
+// Message queue for retransmission logic
+typedef struct retry_scheduler {
+    int64 next_check_time;               // Earliest retry time
+    uint16 pending_retries[MAX_PACKETS]; // Indices of messages needing retransmission
+    uint16 retry_queue_head;
+    uint16 retry_queue_tail;
+} Retry_Scheduler;
 
 typedef struct tera_context {
     // Memory arenas, separated by entity
@@ -71,6 +90,8 @@ typedef struct tera_context {
     Message_Data message_data[MAX_PACKETS];
     Publish_Properties properties_data[MAX_PACKETS];
     Subscription_Data subscription_data[MAX_SUBSCRIPTIONS];
+
+    Retry_Scheduler retry_scheduler;
 } Tera_Context;
 
 typedef union data_flags {

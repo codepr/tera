@@ -11,6 +11,8 @@
 #include <string.h>
 #include <unistd.h>
 
+// ================================= Globals =================================
+
 uint8 client_data_buffer[MAX_CLIENT_DATA_BUFFER_SIZE]   = {0};
 Arena client_arena                                      = {0};
 
@@ -31,6 +33,25 @@ typedef enum {
 } Transport_Result;
 
 static Tera_Context context = {0};
+
+static void process_message_timeouts(Tera_Context *ctx, int64 current_time)
+{
+    for (usize i = 0; i < MAX_PACKETS; ++i) {
+        Message_Data *msg = &ctx->message_data[i];
+
+        if (msg->state == MSG_ACKNOWLEDGED || msg->state == MSG_EXPIRED)
+            continue;
+
+        if (msg->next_retry_at > 0 && current_time >= msg->next_retry_at) {
+            if (msg->retry_count >= MAX_RETRY_ATTEMPTS) {
+                msg->state = MSG_EXPIRED;
+                // TOOD session cleanup
+            } else {
+                enqueue_retry(ctx, i);
+            }
+        }
+    }
+}
 
 // TODO can use a more efficient way then linear scan
 static void cleanup_message(int16 mid)
@@ -127,6 +148,8 @@ static Transport_Result handle_client(int fd)
             result = mqtt_connect_read(&context, client);
             if (result == MQTT_DECODE_SUCCESS)
                 mqtt_connack_write(&context, client, CONNACK_SUCCESS);
+            else if (result == MQTT_DECODE_INVALID)
+                return TRANSPORT_DISCONNECT;
             break;
         case DISCONNECT:
             result = mqtt_disconnect_read(&context, client);
@@ -223,6 +246,7 @@ static void client_connection_shutdown(int fd)
             context.subscription_data[i].active = false;
     }
     context.connection_data[fd].socket_fd = -1;
+    context.connection_data[fd].connected = false;
     close(fd);
     log_info(">>>>: Client disconnected");
 }

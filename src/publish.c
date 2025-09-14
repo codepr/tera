@@ -350,7 +350,7 @@ static void mqtt_publish_single_write(Tera_Context *ctx, Message_Data *message,
 
             isize fixed_header_len = mqtt_fixed_header_write(buf, &header);
             if (fixed_header_len < 0) {
-                log_error("Failed to write packet header");
+                log_error(">>>>: Failed to write packet header");
             } else {
                 written_bytes += fixed_header_len;
 
@@ -383,8 +383,13 @@ static void mqtt_publish_single_write(Tera_Context *ctx, Message_Data *message,
     case AT_MOST_ONCE:
         message->options = data_flags_active_set(message->options, 0);
         message->options = data_flags_acknowledged_set(message->options, 1);
+        message->state   = MSG_ACKNOWLEDGED;
         break;
     case AT_LEAST_ONCE:
+        message->state            = MSG_ACKNOWLEDGED;
+        message->last_sent_at     = current_micros();
+        message->next_retry_at    = message->last_sent_at + RETRY_TIMEOUT_MS;
+        message->target_client_id = subscription_data->client_id;
         mqtt_ack_write(ctx, cdata, PUBACK, message->id);
         message->options = data_flags_active_set(message->options, 0);
         message->options = data_flags_acknowledged_set(message->options, 1);

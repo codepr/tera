@@ -122,7 +122,25 @@ typedef struct subscription_data {
     bool active;
 } Subscription_Data;
 
+// Message_Data flags for retransmission states
+typedef enum message_state {
+    MSG_PENDING_SEND     = 0, // Ready to send
+    MSG_AWAITING_PUBACK  = 1, // QoS1: waiting for PUBACK
+    MSG_AWAITING_PUBREC  = 2, // QoS2: waiting for PUBREC
+    MSG_AWAITING_PUBCOMP = 3, // QoS2: sent PUBREL, waiting for PUBREL
+    MSG_ACKNOWLEDGED     = 4, // Fully acknowledged
+    MSG_EXPIRED          = 5, // Retry limit exceeded
+} Message_State;
+
 typedef struct message_data {
+    // Retransmission fields
+    int64 last_sent_at;      // Last transmission timestamp
+    int64 next_retry_at;     // When to retry (0 = don't retry)
+    uint16 retry_count;      // Number of retries attempted
+    uint16 target_client_id; // Which client this message targets
+    Message_State state;     // Current message state
+
+    // Message metadata for topic, payload
     uint16 id;
     uint16 property_id;
     uint16 topic_size;

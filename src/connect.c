@@ -1,10 +1,20 @@
 #include "logger.h"
+#include "mqtt.h"
 #include "tera_internal.h"
 
 #define PROTOCOL_NAME_BYTES_LEN 6
 
 MQTT_Decode_Result mqtt_connect_read(Tera_Context *ctx, Client_Data *cdata)
 {
+    if (ctx->connection_data[cdata->conn_id].connected) {
+        /*
+         * Already connected client, 2 CONNECT packet should be interpreted as
+         * a violation of the protocol, causing disconnection of the client
+         */
+        log_info(">>>>: received double CONNECT, disconnecting client");
+        return MQTT_DECODE_INVALID;
+    }
+
     Buffer *buf     = &ctx->connection_data[cdata->conn_id].recv_buffer;
     usize start_pos = buf->read_pos;
 
@@ -156,6 +166,8 @@ MQTT_Decode_Result mqtt_connect_read(Tera_Context *ctx, Client_Data *cdata)
         ptr += cdata->password_size;
         memory_offset += cdata->password_size;
     }
+
+    ctx->connection_data[cdata->conn_id].connected = true;
 
     return MQTT_DECODE_SUCCESS;
 }
