@@ -53,15 +53,11 @@ int iomux_del(iomux_t *mux, int fd)
 int iomux_wait(iomux_t *mux, time_t timeout_ms)
 {
     struct timespec ts = {timeout_ms / 1000, (timeout_ms % 1000) * 1000000};
-    mux->nevents       = kevent(mux->kq, NULL, 0, mux->events, NUM_EVENTS,
-                          timeout_ms >= 0 ? &ts : NULL);
+    mux->nevents = kevent(mux->kq, NULL, 0, mux->events, NUM_EVENTS, timeout_ms >= 0 ? &ts : NULL);
     return mux->nevents;
 }
 
-int iomux_get_event_fd(iomux_t *mux, int index)
-{
-    return mux->events[index].ident;
-}
+int iomux_get_event_fd(iomux_t *mux, int index) { return mux->events[index].ident; }
 
 iomux_event_t iomux_get_event_flags(iomux_t *mux, int index)
 {
@@ -128,8 +124,7 @@ int iomux_del(iomux_t *mux, int fd)
         FD_CLR(fd, &mux->writefds);
     for (int i = 0; i < mux->nfds; i++) {
         if (mux->fds[i] == fd) {
-            memmove(&mux->fds[i], &mux->fds[i + 1],
-                    (mux->nfds - i - 1) * sizeof(int));
+            memmove(&mux->fds[i], &mux->fds[i + 1], (mux->nfds - i - 1) * sizeof(int));
             mux->nfds--;
             break;
         }
@@ -148,8 +143,7 @@ int iomux_wait(iomux_t *mux, time_t timeout_ms)
     struct timeval tv = {timeout_ms / 1000, (timeout_ms % 1000) * 1000};
     fd_set rfds       = mux->readfds;
     fd_set wfds       = mux->writefds;
-    return select(mux->maxfd + 1, &rfds, &wfds, NULL,
-                  timeout_ms >= 0 ? &tv : NULL);
+    return select(mux->maxfd + 1, &rfds, &wfds, NULL, timeout_ms >= 0 ? &tv : NULL);
 }
 
 int iomux_get_event_fd(iomux_t *mux, int index)

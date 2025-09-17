@@ -49,9 +49,8 @@ err:
 int net_tcp_listen(const char *host, int port, int nonblocking)
 {
     int listen_fd               = -1;
-    const struct addrinfo hints = {.ai_family   = AF_UNSPEC,
-                                   .ai_socktype = SOCK_STREAM,
-                                   .ai_flags    = AI_PASSIVE};
+    const struct addrinfo hints = {
+        .ai_family = AF_UNSPEC, .ai_socktype = SOCK_STREAM, .ai_flags = AI_PASSIVE};
     struct addrinfo *result, *rp;
     char port_string[6];
 
@@ -65,8 +64,7 @@ int net_tcp_listen(const char *host, int port, int nonblocking)
         if (listen_fd < 0)
             continue;
 
-        if (setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &(int){1},
-                       sizeof(int)) < 0)
+        if (setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) < 0)
             return -1;
 
         /* Bind it to the addr:port opened on the network interface */
@@ -92,9 +90,8 @@ int net_tcp_connect(const char *host, int port, int nonblocking)
 {
     int s, retval = -1;
     struct addrinfo *servinfo, *p;
-    const struct addrinfo hints = {.ai_family   = AF_UNSPEC,
-                                   .ai_socktype = SOCK_STREAM,
-                                   .ai_flags    = AI_PASSIVE};
+    const struct addrinfo hints = {
+        .ai_family = AF_UNSPEC, .ai_socktype = SOCK_STREAM, .ai_flags = AI_PASSIVE};
 
     char port_string[6];
     snprintf(port_string, sizeof(port_string), "%d", port);

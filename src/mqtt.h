@@ -135,10 +135,10 @@ typedef enum delivery_state {
 
 typedef struct message_delivery {
     // Retransmission fields
-    int64 last_sent_at;      // Last transmission timestamp
-    int64 next_retry_at;     // When to retry (0 = don't retry)
-    uint16 retry_count;      // Number of retries attempted
-    Delivery_State state;    // Current delivery state
+    int64 last_sent_at;   // Last transmission timestamp
+    int64 next_retry_at;  // When to retry (0 = don't retry)
+    uint16 retry_count;   // Number of retries attempted
+    Delivery_State state; // Current delivery state
 
     // Message metadata for topic, payload
     uint16 client_id;        // Target client (subscriber)

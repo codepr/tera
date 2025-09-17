@@ -99,19 +99,16 @@ typedef union data_flags {
 
 static inline Data_Flags data_flags_get(uint8 byte)
 {
-    return (Data_Flags){.bits = {.retain       = (uint8)(((byte) >> 0) & 0x01),
-                                 .qos          = (uint8)(((byte) >> 1) & 0x03),
-                                 .dup          = (uint8)(((byte) >> 3) & 0x01),
-                                 .active       = (uint8)(((byte) >> 4) & 0x01)}};
+    return (Data_Flags){.bits = {.retain = (uint8)(((byte) >> 0) & 0x01),
+                                 .qos    = (uint8)(((byte) >> 1) & 0x03),
+                                 .dup    = (uint8)(((byte) >> 3) & 0x01),
+                                 .active = (uint8)(((byte) >> 4) & 0x01)}};
 }
 
 static inline Data_Flags data_flags_set(bool retain, uint8 qos, bool dup, bool active,
                                         bool acknowledged)
 {
-    return (Data_Flags){.bits = {.retain       = retain,
-                                 .qos          = qos,
-                                 .dup          = dup,
-                                 .active       = active}};
+    return (Data_Flags){.bits = {.retain = retain, .qos = qos, .dup = dup, .active = active}};
 }
 
 static inline uint8 data_flags_active_get(uint8 byte) { return (((byte) >> 4) & 0x01); }
@@ -119,7 +116,6 @@ static inline uint8 data_flags_active_set(uint8 byte, uint8 value)
 {
     return (byte & ~(0x01 << 0x04)) | ((value & 0x01) << 0x04);
 }
-
 
 static inline void tera_context_init(Tera_Context *ctx)
 {

@@ -120,8 +120,8 @@ isize buffer_net_send(Buffer *buffer, int fd)
     if (available == 0)
         return 0;
 
-    isize bytes_written =
-        net_send_nonblocking(fd, buffer->data + buffer->read_pos, buffer->write_pos - buffer->read_pos);
+    isize bytes_written = net_send_nonblocking(fd, buffer->data + buffer->read_pos,
+                                               buffer->write_pos - buffer->read_pos);
 
     if (bytes_written < 0)
         return -1;
@@ -332,7 +332,7 @@ usize buffer_write_struct(Buffer *buffer, const char *fmt, ...)
             buffer->write_pos += 8;
             break;
 
-        case 's':  // string
+        case 's': // string
             s = va_arg(ap, char *);
             memcpy(buf, s, maxstrlen);
             buffer->write_pos += maxstrlen;

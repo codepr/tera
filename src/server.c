@@ -71,12 +71,12 @@ static void process_delivery_timeouts(Tera_Context *ctx, int64 current_time)
 
         if (delivery->next_retry_at > 0 && current_time >= delivery->next_retry_at) {
             if (delivery->retry_count >= MAX_RETRY_ATTEMPTS) {
-                delivery->state = MSG_EXPIRED;
+                delivery->state  = MSG_EXPIRED;
                 delivery->active = false;
                 free_published_message(delivery->published_msg_id);
             } else {
                 delivery->retry_count++;
-                delivery->last_sent_at = current_time;
+                delivery->last_sent_at  = current_time;
                 delivery->next_retry_at = current_time + RETRY_TIMEOUT_MS;
                 mqtt_publish_retry(ctx, delivery);
             }
@@ -89,7 +89,8 @@ static void message_delivery_update(uint16 client_id, int16 mid, Delivery_State 
 {
     for (usize i = 0; i < MAX_DELIVERY_MESSAGES; ++i) {
         Message_Delivery *delivery = &context.message_deliveries[i];
-        if (!delivery->active) continue;
+        if (!delivery->active)
+            continue;
 
         if (delivery->client_id == client_id && delivery->message_id == mid) {
             delivery->state = new_state;
@@ -281,11 +282,11 @@ static int server_start(int serverfd)
     int numevents          = 0;
     Transport_Result err   = 0;
     time_t current_time    = 0;
-    time_t check_delta    = 0;
-    time_t last_check     = 0;
+    time_t check_delta     = 0;
+    time_t last_check      = 0;
     time_t resend_check_ms = MQTT_RETRANSMISSION_CHECK_MS;
 
-    iomux_t *iomux       = iomux_create();
+    iomux_t *iomux         = iomux_create();
     if (!iomux)
         return -1;
 
@@ -332,10 +333,10 @@ static int server_start(int serverfd)
         }
 
         current_time = current_micros();
-        check_delta = current_time - last_check;
+        check_delta  = current_time - last_check;
         if (check_delta >= resend_check_ms) {
             process_delivery_timeouts(&context, current_time);
-            last_check = current_time;
+            last_check      = current_time;
             resend_check_ms = MQTT_RETRANSMISSION_CHECK_MS;
         } else {
             resend_check_ms = MQTT_RETRANSMISSION_CHECK_MS - check_delta;
