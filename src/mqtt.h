@@ -122,24 +122,33 @@ typedef struct subscription_data {
     bool active;
 } Subscription_Data;
 
-// Message_Data flags for retransmission states
-typedef enum message_state {
+// Message_Delivery flags for retransmission states
+typedef enum delivery_state {
     MSG_PENDING_SEND     = 0, // Ready to send
     MSG_AWAITING_PUBACK  = 1, // QoS1: waiting for PUBACK
     MSG_AWAITING_PUBREC  = 2, // QoS2: waiting for PUBREC
-    MSG_AWAITING_PUBCOMP = 3, // QoS2: sent PUBREL, waiting for PUBREL
-    MSG_ACKNOWLEDGED     = 4, // Fully acknowledged
-    MSG_EXPIRED          = 5, // Retry limit exceeded
-} Message_State;
+    MSG_AWAITING_PUBREL  = 3, // QoS2: waiting for PUBREC
+    MSG_AWAITING_PUBCOMP = 4, // QoS2: sent PUBREL, waiting for PUBREL
+    MSG_ACKNOWLEDGED     = 5, // Fully acknowledged
+    MSG_EXPIRED          = 6, // Retry limit exceeded
+} Delivery_State;
 
-typedef struct message_data {
+typedef struct message_delivery {
     // Retransmission fields
     int64 last_sent_at;      // Last transmission timestamp
     int64 next_retry_at;     // When to retry (0 = don't retry)
     uint16 retry_count;      // Number of retries attempted
-    uint16 target_client_id; // Which client this message targets
-    Message_State state;     // Current message state
+    Delivery_State state;    // Current delivery state
 
+    // Message metadata for topic, payload
+    uint16 client_id;        // Target client (subscriber)
+    uint16 published_msg_id; // Points to a Published_Message
+    uint16 message_id;       // MQTT packet ID for client
+    uint8 delivery_qos;      // Negotiated QoS (min between publisher/subscriber)
+    bool active;             // Wether the delivery is free to be used
+} Message_Delivery;
+
+typedef struct published_message {
     // Message metadata for topic, payload
     uint16 id;
     uint16 property_id;
@@ -148,7 +157,7 @@ typedef struct message_data {
     uint16 message_size;
     uint16 message_offset;
     uint8 options;
-} Message_Data;
+} Published_Message;
 
 typedef struct client_data Client_Data;
 typedef struct tera_context Tera_Context;
@@ -496,6 +505,8 @@ typedef enum {
 void mqtt_suback_write(Tera_Context *ctx, const Client_Data *cdata, const Subscribe_Result *r);
 
 void mqtt_publish_write(Tera_Context *ctx, const Client_Data *cdata);
+
+void mqtt_publish_retry(Tera_Context *ctx, Message_Delivery *delivery);
 
 void mqtt_pingresp_write(Tera_Context *ctx, const Client_Data *cdata);
 

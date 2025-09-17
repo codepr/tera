@@ -53,25 +53,25 @@ void mqtt_ack_write(Tera_Context *ctx, const Client_Data *cdata, Packet_Type ack
     case PUBACK:
         header.byte = DEFAULT_PUBACK_BYTE;
         mqtt_fixed_header_write(buf, &header);
-        buffer_write_struct(buf, "HB", id, 0x00);
+        buffer_write_struct(buf, "H", id);
         log_info("sent: PUBACK mid: %d rc: 0x00", id);
         break;
     case PUBREC:
         header.byte = DEFAULT_PUBREC_BYTE;
         mqtt_fixed_header_write(buf, &header);
-        buffer_write_struct(buf, "HB", id, 0x00);
+        buffer_write_struct(buf, "H", id);
         log_info("sent: PUBREC mid: %d rc: 0x00", id);
         break;
     case PUBREL:
         header.byte = DEFAULT_PUBREL_BYTE;
         mqtt_fixed_header_write(buf, &header);
-        buffer_write_struct(buf, "HB", id, 0x00);
+        buffer_write_struct(buf, "H", id);
         log_info("sent: PUBREL mid: %d rc: 0x00", id);
         break;
     case PUBCOMP:
         header.byte = DEFAULT_PUBCOMP_BYTE;
         mqtt_fixed_header_write(buf, &header);
-        buffer_write_struct(buf, "HB", id, 0x00);
+        buffer_write_struct(buf, "H", id);
         log_info("sent: PUBCOMP mid: %d rc: 0x00", id);
         break;
     default:

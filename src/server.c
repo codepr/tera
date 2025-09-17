@@ -34,41 +34,6 @@ typedef enum {
 
 static Tera_Context context = {0};
 
-static void process_message_timeouts(Tera_Context *ctx, int64 current_time)
-{
-    for (usize i = 0; i < MAX_PACKETS; ++i) {
-        Message_Data *msg = &ctx->message_data[i];
-
-        if (msg->state == MSG_ACKNOWLEDGED || msg->state == MSG_EXPIRED)
-            continue;
-
-        if (msg->next_retry_at > 0 && current_time >= msg->next_retry_at) {
-            if (msg->retry_count >= MAX_RETRY_ATTEMPTS) {
-                msg->state = MSG_EXPIRED;
-                // TOOD session cleanup
-            } else {
-                enqueue_retry(ctx, i);
-            }
-        }
-    }
-}
-
-// TODO can use a more efficient way then linear scan
-static void cleanup_message(int16 mid)
-{
-    for (usize i = 0; i < MAX_PACKETS; ++i) {
-        if (!data_flags_active_get(context.message_data[i].options))
-            continue;
-
-        if (context.message_data[i].id == mid) {
-            context.message_data[i].options =
-                data_flags_acknowledged_set(context.message_data[i].options, 1);
-            context.message_data[i].options =
-                data_flags_active_set(context.message_data[i].options, 0);
-        }
-    }
-}
-
 static void broadcast_reply(void)
 {
     Connection_Data *cd = NULL;
@@ -76,7 +41,65 @@ static void broadcast_reply(void)
         cd = &context.connection_data[i];
         if (buffer_is_empty(&cd->send_buffer))
             continue;
+
         buffer_net_send(&cd->send_buffer, cd->socket_fd);
+    }
+}
+
+static void free_published_message(int16 mid)
+{
+    // TODO can use a more efficient way then linear scan
+    for (usize i = 0; i < MAX_PUBLISHED_MESSAGES; ++i) {
+        if (!data_flags_active_get(context.published_messages[i].options))
+            continue;
+
+        if (context.published_messages[i].id == mid) {
+            context.published_messages[i].options =
+                data_flags_active_set(context.published_messages[i].options, 0);
+            context.properties_data[context.published_messages[i].property_id].active = false;
+        }
+    }
+}
+
+static void process_delivery_timeouts(Tera_Context *ctx, int64 current_time)
+{
+    for (usize i = 0; i < MAX_DELIVERY_MESSAGES; ++i) {
+        Message_Delivery *delivery = &ctx->message_deliveries[i];
+
+        if (delivery->state == MSG_ACKNOWLEDGED || delivery->state == MSG_EXPIRED)
+            continue;
+
+        if (delivery->next_retry_at > 0 && current_time >= delivery->next_retry_at) {
+            if (delivery->retry_count >= MAX_RETRY_ATTEMPTS) {
+                delivery->state = MSG_EXPIRED;
+                delivery->active = false;
+                free_published_message(delivery->published_msg_id);
+            } else {
+                delivery->retry_count++;
+                delivery->last_sent_at = current_time;
+                delivery->next_retry_at = current_time + RETRY_TIMEOUT_MS;
+                mqtt_publish_retry(ctx, delivery);
+            }
+        }
+    }
+    broadcast_reply();
+}
+
+static void message_delivery_update(uint16 client_id, int16 mid, Delivery_State new_state)
+{
+    for (usize i = 0; i < MAX_DELIVERY_MESSAGES; ++i) {
+        Message_Delivery *delivery = &context.message_deliveries[i];
+        if (!delivery->active) continue;
+
+        if (delivery->client_id == client_id && delivery->message_id == mid) {
+            delivery->state = new_state;
+
+            if (new_state == MSG_ACKNOWLEDGED) {
+                delivery->active = false;
+                free_published_message(delivery->published_msg_id);
+            }
+            break;
+        }
     }
 }
 
@@ -173,14 +196,16 @@ static Transport_Result handle_client(int fd)
         case PUBACK: {
             int16 mid = 0;
             mqtt_ack_read(&context, client, &mid);
-            cleanup_message(mid);
+            message_delivery_update(client->conn_id, mid, MSG_ACKNOWLEDGED);
             break;
         }
         case PUBREC: {
             int16 mid = 0;
             result    = mqtt_ack_read(&context, client, &mid);
-            if (result == MQTT_DECODE_SUCCESS)
+            if (result == MQTT_DECODE_SUCCESS) {
                 mqtt_ack_write(&context, client, PUBREL, mid);
+                message_delivery_update(client->conn_id, mid, MSG_AWAITING_PUBCOMP);
+            }
             break;
         }
         case PUBREL: {
@@ -188,14 +213,14 @@ static Transport_Result handle_client(int fd)
             result    = mqtt_ack_read(&context, client, &mid);
             if (result == MQTT_DECODE_SUCCESS) {
                 mqtt_ack_write(&context, client, PUBCOMP, mid);
-                cleanup_message(mid);
+                message_delivery_update(client->conn_id, mid, MSG_ACKNOWLEDGED);
             }
             break;
         }
         case PUBCOMP: {
             int16 mid = 0;
             mqtt_ack_read(&context, client, &mid);
-            cleanup_message(mid);
+            message_delivery_update(client->conn_id, mid, MSG_ACKNOWLEDGED);
             break;
         }
         case PINGREQ:
@@ -253,8 +278,12 @@ static void client_connection_shutdown(int fd)
 
 static int server_start(int serverfd)
 {
-    int numevents        = 0;
-    Transport_Result err = 0;
+    int numevents          = 0;
+    Transport_Result err   = 0;
+    time_t current_time    = 0;
+    time_t check_delta    = 0;
+    time_t last_check     = 0;
+    time_t resend_check_ms = MQTT_RETRANSMISSION_CHECK_MS;
 
     iomux_t *iomux       = iomux_create();
     if (!iomux)
@@ -263,7 +292,7 @@ static int server_start(int serverfd)
     iomux_add(iomux, serverfd, IOMUX_READ);
 
     while (1) {
-        numevents = iomux_wait(iomux, -1);
+        numevents = iomux_wait(iomux, resend_check_ms);
         if (numevents < 0)
             log_critical(">>>>: iomux error: %s", strerror(errno));
 
@@ -300,6 +329,16 @@ static int server_start(int serverfd)
                     continue;
                 }
             }
+        }
+
+        current_time = current_micros();
+        check_delta = current_time - last_check;
+        if (check_delta >= resend_check_ms) {
+            process_delivery_timeouts(&context, current_time);
+            last_check = current_time;
+            resend_check_ms = MQTT_RETRANSMISSION_CHECK_MS;
+        } else {
+            resend_check_ms = MQTT_RETRANSMISSION_CHECK_MS - check_delta;
         }
     }
 

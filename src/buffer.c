@@ -121,7 +121,7 @@ isize buffer_net_send(Buffer *buffer, int fd)
         return 0;
 
     isize bytes_written =
-        net_send_nonblocking(fd, buffer->data + buffer->read_pos, buffer->write_pos);
+        net_send_nonblocking(fd, buffer->data + buffer->read_pos, buffer->write_pos - buffer->read_pos);
 
     if (bytes_written < 0)
         return -1;
@@ -332,10 +332,9 @@ usize buffer_write_struct(Buffer *buffer, const char *fmt, ...)
             buffer->write_pos += 8;
             break;
 
-        case 's': // string
+        case 's':  // string
             s = va_arg(ap, char *);
             memcpy(buf, s, maxstrlen);
-            s[maxstrlen] = '\0';
             buffer->write_pos += maxstrlen;
             break;
 
@@ -372,4 +371,14 @@ usize buffer_write_binary(Buffer *buf, const void *src, usize len)
 usize buffer_write_utf8_string(Buffer *buf, const void *src, usize len)
 {
     return buffer_write_struct(buf, "H", len) + buffer_write_binary(buf, src, len);
+}
+
+void buffer_dump(const Buffer *buf)
+{
+    for (int i = buf->read_pos; i < buf->write_pos; ++i) {
+        printf("%02x ", buf->data[i]);
+        if ((i + 1) % 16 == 0)
+            printf("\n");
+    }
+    printf("\n");
 }

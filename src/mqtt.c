@@ -91,7 +91,7 @@ usize mqtt_variable_length_write(Buffer *buf, usize len)
     uint16 encoded = 0;
 
     do {
-        if (buf->write_pos + 1 > MAX_VARIABLE_LENGTH_BYTES)
+        if ((buf->write_pos - buf->read_pos) + 1 > MAX_VARIABLE_LENGTH_BYTES)
             return bytes;
 
         encoded = len % 128;
