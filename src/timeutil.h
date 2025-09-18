@@ -4,6 +4,7 @@
 #include <time.h>
 
 time_t current_seconds(void);
+int64 current_millis(void);
 int64 current_micros(void);
 int64 current_nanos(void);
 int clocktime(struct timespec *ts);

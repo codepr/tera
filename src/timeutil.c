@@ -37,6 +37,8 @@ time_t current_seconds(void)
     return ts.tv_sec;
 }
 
+int64 current_millis(void) { return current_seconds() * 1000; }
+
 int clocktime(struct timespec *ts) { return clock_gettime(CLOCK_PROCESS_CPUTIME_ID, ts); }
 
 float64 timespec_seconds(struct timespec *ts)

@@ -361,7 +361,7 @@ static void mqtt_publish_fanout(Tera_Context *ctx, uint16 index, const Client_Da
         delivery->state        = (delivery->delivery_qos == AT_MOST_ONCE)    ? MSG_ACKNOWLEDGED
                                  : (delivery->delivery_qos == AT_LEAST_ONCE) ? MSG_AWAITING_PUBACK
                                                                              : MSG_AWAITING_PUBREC;
-        delivery->last_sent_at = current_micros();
+        delivery->last_sent_at = current_millis();
         delivery->next_retry_at =
             (delivery->delivery_qos > AT_MOST_ONCE) ? delivery->last_sent_at + RETRY_TIMEOUT_MS : 0;
         delivery->retry_count = 0;
@@ -456,13 +456,16 @@ static void mqtt_publish_fanout(Tera_Context *ctx, uint16 index, const Client_Da
          */
         delivery->delivery_qos     = message_flags.bits.qos;
         delivery->state            = MSG_AWAITING_PUBREL;
-        delivery->last_sent_at     = current_micros();
+        delivery->last_sent_at     = current_millis();
         delivery->next_retry_at    = delivery->last_sent_at + RETRY_TIMEOUT_MS;
         delivery->retry_count      = 0;
         delivery->active           = true;
 
         break;
     }
+    default:
+        // Unreachable
+        break;
     }
 }
 

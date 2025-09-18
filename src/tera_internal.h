@@ -70,6 +70,34 @@ typedef struct connection_data {
 #define MAX_RETRY_ATTEMPTS 5
 #define RETRY_TIMEOUT_MS   20000
 
+/**
+ * Main server context structure containing all global state for the MQTT broker.
+ *
+ * This structure centralizes all broker state to enable explicit dependency passing.
+ * The design separates concerns into memory management (arenas)
+ * and data storage (arrays).
+ *
+ * Memory Management:
+ * - Uses separate arena allocators for different entity types to reduce fragmentation
+ * - Each arena serves a specific purpose (I/O buffers, client data, topics, messages)
+ *
+ * Data Storage:
+ * - Fixed-size arrays provide predictable memory usage and avoid dynamic allocation
+ * - Arrays are sized by MAX_* constants to enforce broker capacity limits
+ * - Parallel arrays (connection_data/client_data) allow separation of transport vs
+ *   protocol state
+ *
+ * Memory Layout:
+ * - Connection/client data: Per-socket state for active connections
+ * - Published messages: Tracking QoS 1/2 messages awaiting acknowledgment
+ * - Message deliveries: Retry logic and delivery state for reliable messaging, 1:N fanout
+ *                       logic where each published message can have multiple active
+ *                       deliveries depending on how many subscribers are connected to the
+ *                       topic it publishes to
+ * - Properties: MQTT 5.0 properties associated with published messages
+ * - Subscriptions: Topic filters and associated client subscriptions, wildacards and
+ *                  hierarchies are not supported as of yet
+ */
 typedef struct tera_context {
     // Memory arenas, separated by entity
     Arena *io_arena;
@@ -86,6 +114,10 @@ typedef struct tera_context {
     Subscription_Data subscription_data[MAX_SUBSCRIPTIONS];
 } Tera_Context;
 
+/**
+ * Simple helper structure to quickly access all the encoded bitfields
+ * of each published message
+ */
 typedef union data_flags {
     uint8 value;
     struct {

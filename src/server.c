@@ -11,7 +11,7 @@
 #include <string.h>
 #include <unistd.h>
 
-// ================================= Globals =================================
+// ============================ Globals ==============================
 
 uint8 client_data_buffer[MAX_CLIENT_DATA_BUFFER_SIZE]   = {0};
 Arena client_arena                                      = {0};
@@ -32,13 +32,23 @@ typedef enum {
     TRANSPORT_INCOMPLETE_PACKET = -2,
 } Transport_Result;
 
+// Global context of the server, this will be passed around anywhere
+// the global state is accessed or mutated
 static Tera_Context context = {0};
 
-static void broadcast_reply(void)
+// ======================== Static helpers ===========================
+
+/**
+ * This function is pretty simple, just loop through all the existing
+ * connected clients and ensure that the out buffer is flushed.
+ */
+static void broadcast_replies(Tera_Context *ctx)
 {
     Connection_Data *cd = NULL;
     for (usize i = 0; i < MAX_CLIENTS; ++i) {
-        cd = &context.connection_data[i];
+        cd = &ctx->connection_data[i];
+        if (!cd->connected)
+            continue;
         if (buffer_is_empty(&cd->send_buffer))
             continue;
 
@@ -46,21 +56,35 @@ static void broadcast_reply(void)
     }
 }
 
-static void free_published_message(int16 mid)
+/**
+ * Once a published message have concluded its lifecycle, e.g.
+ * - A PUBLISH message that must be acknowledged by the publisher
+ * - A PUBLISH message that must be akcnowledged by 1 or more subscribers,
+ *   depending on the QoS level
+ *
+ * It's memory slot for metadata will be free to be re-used by another
+ * incoming message. This function sets the message slot as free using
+ * the message ID to find the position in the array.
+ */
+static void free_published_message(Tera_Context *ctx, int16 mid)
 {
     // TODO can use a more efficient way then linear scan
     for (usize i = 0; i < MAX_PUBLISHED_MESSAGES; ++i) {
-        if (!data_flags_active_get(context.published_messages[i].options))
+        if (!data_flags_active_get(ctx->published_messages[i].options))
             continue;
 
-        if (context.published_messages[i].id == mid) {
-            context.published_messages[i].options =
-                data_flags_active_set(context.published_messages[i].options, 0);
-            context.properties_data[context.published_messages[i].property_id].active = false;
+        if (ctx->published_messages[i].id == mid) {
+            ctx->published_messages[i].options =
+                data_flags_active_set(ctx->published_messages[i].options, 0);
+            ctx->properties_data[ctx->published_messages[i].property_id].active = false;
         }
     }
 }
 
+/**
+ * Iterate through the published messages to ensure that they have
+ * been correctly delivered
+ */
 static void process_delivery_timeouts(Tera_Context *ctx, int64 current_time)
 {
     for (usize i = 0; i < MAX_DELIVERY_MESSAGES; ++i) {
@@ -73,7 +97,7 @@ static void process_delivery_timeouts(Tera_Context *ctx, int64 current_time)
             if (delivery->retry_count >= MAX_RETRY_ATTEMPTS) {
                 delivery->state  = MSG_EXPIRED;
                 delivery->active = false;
-                free_published_message(delivery->published_msg_id);
+                free_published_message(ctx, delivery->published_msg_id);
             } else {
                 delivery->retry_count++;
                 delivery->last_sent_at  = current_time;
@@ -82,13 +106,19 @@ static void process_delivery_timeouts(Tera_Context *ctx, int64 current_time)
             }
         }
     }
-    broadcast_reply();
+    broadcast_replies(ctx);
 }
 
-static void message_delivery_update(uint16 client_id, int16 mid, Delivery_State new_state)
+/**
+ * Intermediate or final steps of each delivery to ensure that each subscriber
+ * or publisher has been acknowledged, eventually leading to a publised message
+ * to be freed.
+ */
+static void update_message_delivery(Tera_Context *ctx, uint16 client_id, int16 mid,
+                                    Delivery_State new_state)
 {
     for (usize i = 0; i < MAX_DELIVERY_MESSAGES; ++i) {
-        Message_Delivery *delivery = &context.message_deliveries[i];
+        Message_Delivery *delivery = &ctx->message_deliveries[i];
         if (!delivery->active)
             continue;
 
@@ -97,17 +127,17 @@ static void message_delivery_update(uint16 client_id, int16 mid, Delivery_State 
 
             if (new_state == MSG_ACKNOWLEDGED) {
                 delivery->active = false;
-                free_published_message(delivery->published_msg_id);
+                free_published_message(ctx, delivery->published_msg_id);
             }
             break;
         }
     }
 }
 
-static Transport_Result handle_client(int fd)
+static Transport_Result process_client_messages(Tera_Context *ctx, int fd)
 {
-    Client_Data *client    = &context.client_data[fd];
-    Connection_Data *cdata = &context.connection_data[fd];
+    Client_Data *client    = &ctx->client_data[fd];
+    Connection_Data *cdata = &ctx->connection_data[fd];
 
     buffer_reset(&cdata->recv_buffer);
     isize nread = buffer_net_recv(&cdata->recv_buffer, cdata->socket_fd);
@@ -169,65 +199,65 @@ static Transport_Result handle_client(int fd)
 
         switch (mqtt_type_get(header)) {
         case CONNECT:
-            result = mqtt_connect_read(&context, client);
+            result = mqtt_connect_read(ctx, client);
             if (result == MQTT_DECODE_SUCCESS)
-                mqtt_connack_write(&context, client, CONNACK_SUCCESS);
+                mqtt_connack_write(ctx, client, CONNACK_SUCCESS);
             else if (result == MQTT_DECODE_INVALID)
                 return TRANSPORT_DISCONNECT;
             break;
         case DISCONNECT:
-            result = mqtt_disconnect_read(&context, client);
+            result = mqtt_disconnect_read(ctx, client);
             return TRANSPORT_DISCONNECT;
         case SUBSCRIBE: {
             Subscribe_Result sub_result = {0};
-            result                      = mqtt_subscribe_read(&context, client, &sub_result);
+            result                      = mqtt_subscribe_read(ctx, client, &sub_result);
             if (result == MQTT_DECODE_SUCCESS)
-                mqtt_suback_write(&context, client, &sub_result);
+                mqtt_suback_write(ctx, client, &sub_result);
             break;
         }
         case UNSUBSCRIBE:
             // TODO
             break;
         case PUBLISH: {
-            result = mqtt_publish_read(&context, client);
+            result = mqtt_publish_read(ctx, client);
             if (result == MQTT_DECODE_SUCCESS)
-                mqtt_publish_write(&context, client);
+                mqtt_publish_write(ctx, client);
             break;
         }
         case PUBACK: {
             int16 mid = 0;
-            mqtt_ack_read(&context, client, &mid);
-            message_delivery_update(client->conn_id, mid, MSG_ACKNOWLEDGED);
+            mqtt_ack_read(ctx, client, &mid);
+            update_message_delivery(ctx, client->conn_id, mid, MSG_ACKNOWLEDGED);
             break;
         }
         case PUBREC: {
             int16 mid = 0;
-            result    = mqtt_ack_read(&context, client, &mid);
+            result    = mqtt_ack_read(ctx, client, &mid);
             if (result == MQTT_DECODE_SUCCESS) {
-                mqtt_ack_write(&context, client, PUBREL, mid);
-                message_delivery_update(client->conn_id, mid, MSG_AWAITING_PUBCOMP);
+                mqtt_ack_write(ctx, client, PUBREL, mid);
+                update_message_delivery(ctx, client->conn_id, mid, MSG_AWAITING_PUBCOMP);
             }
             break;
         }
         case PUBREL: {
             int16 mid = 0;
-            result    = mqtt_ack_read(&context, client, &mid);
+            result    = mqtt_ack_read(ctx, client, &mid);
             if (result == MQTT_DECODE_SUCCESS) {
-                mqtt_ack_write(&context, client, PUBCOMP, mid);
-                message_delivery_update(client->conn_id, mid, MSG_ACKNOWLEDGED);
+                mqtt_ack_write(ctx, client, PUBCOMP, mid);
+                update_message_delivery(ctx, client->conn_id, mid, MSG_ACKNOWLEDGED);
             }
             break;
         }
         case PUBCOMP: {
             int16 mid = 0;
-            mqtt_ack_read(&context, client, &mid);
-            message_delivery_update(client->conn_id, mid, MSG_ACKNOWLEDGED);
+            mqtt_ack_read(ctx, client, &mid);
+            update_message_delivery(ctx, client->conn_id, mid, MSG_ACKNOWLEDGED);
             break;
         }
         case PINGREQ:
-            result = mqtt_pingreq_read(&context, client);
+            result = mqtt_pingreq_read(ctx, client);
             if (result == MQTT_DECODE_SUCCESS)
-                mqtt_pingresp_write(&context, client);
+                mqtt_pingresp_write(ctx, client);
             break;
         default:
             log_error(">>>>: Unknown packet received %d (%ld)", mqtt_type_get(header), nread);
@@ -235,7 +265,7 @@ static Transport_Result handle_client(int fd)
             break;
         }
 
-        broadcast_reply();
+        broadcast_replies(ctx);
     }
 
     buffer_reset(&cdata->send_buffer);
@@ -243,41 +273,41 @@ static Transport_Result handle_client(int fd)
     return TRANSPORT_SUCCESS;
 }
 
-static void client_connection_add(int fd)
+static void client_connection_add(Tera_Context *ctx, int fd)
 {
     // Already registered
-    if (context.connection_data[fd].socket_fd > 0)
+    if (ctx->connection_data[fd].socket_fd > 0)
         return;
 
     // TODO relying on file descriptor uniqueness is poor logic
     //      think of a better approach
-    context.connection_data[fd].socket_fd = fd;
-    context.client_data[fd].conn_id       = fd;
+    ctx->connection_data[fd].socket_fd = fd;
+    ctx->client_data[fd].conn_id       = fd;
 
-    void *read_buf                        = arena_alloc(&io_arena, MAX_PACKET_SIZE);
+    void *read_buf                     = arena_alloc(&io_arena, MAX_PACKET_SIZE);
     if (!read_buf)
         log_critical(">>>>: bump arena OOM");
-    buffer_init(&context.connection_data[fd].recv_buffer, read_buf, MAX_PACKET_SIZE);
+    buffer_init(&ctx->connection_data[fd].recv_buffer, read_buf, MAX_PACKET_SIZE);
 
     void *write_buf = arena_alloc(&io_arena, MAX_PACKET_SIZE);
     if (!write_buf)
         log_critical(">>>>: bump arena OOM");
-    buffer_init(&context.connection_data[fd].send_buffer, write_buf, MAX_PACKET_SIZE);
+    buffer_init(&ctx->connection_data[fd].send_buffer, write_buf, MAX_PACKET_SIZE);
 }
 
-static void client_connection_shutdown(int fd)
+static void client_connection_shutdown(Tera_Context *ctx, int fd)
 {
     for (usize i = 0; i < MAX_SUBSCRIPTIONS; ++i) {
-        if (context.subscription_data[i].client_id == fd)
-            context.subscription_data[i].active = false;
+        if (ctx->subscription_data[i].client_id == fd)
+            ctx->subscription_data[i].active = false;
     }
-    context.connection_data[fd].socket_fd = -1;
-    context.connection_data[fd].connected = false;
+    ctx->connection_data[fd].socket_fd = -1;
+    ctx->connection_data[fd].connected = false;
     close(fd);
     log_info(">>>>: Client disconnected");
 }
 
-static int server_start(int serverfd)
+static int server_start(Tera_Context *ctx, int serverfd)
 {
     int numevents          = 0;
     Transport_Result err   = 0;
@@ -308,34 +338,38 @@ static int server_start(int serverfd)
                     continue;
                 }
 
-                if (context.connection_data[clientfd].socket_fd == clientfd) {
+                if (ctx->connection_data[clientfd].socket_fd == clientfd) {
                     log_warning(">>>>: Client connecting on an open socket");
                     continue;
                 }
 
                 log_info(">>>>: New client connected");
                 iomux_add(iomux, clientfd, IOMUX_READ);
-                client_connection_add(clientfd);
+                client_connection_add(ctx, clientfd);
 
-                err = handle_client(clientfd);
+                err = process_client_messages(ctx, clientfd);
                 if (err == TRANSPORT_DISCONNECT) {
-                    client_connection_shutdown(fd);
+                    client_connection_shutdown(ctx, fd);
                     continue;
                 }
 
-            } else if (context.connection_data[fd].socket_fd == fd) {
-                err = handle_client(fd);
+            } else if (ctx->connection_data[fd].socket_fd == fd) {
+                err = process_client_messages(ctx, fd);
                 if (err == TRANSPORT_DISCONNECT) {
-                    client_connection_shutdown(fd);
+                    client_connection_shutdown(ctx, fd);
                     continue;
                 }
             }
         }
 
-        current_time = current_micros();
+        // Periodic check for deliveries, some clients may fail to acknowledge
+        // the PUBLISH messages, the reason can be anything, network faults
+        // among the most common. This check ensure that a number of attempts
+        // is retried before finally giving up.
+        current_time = current_millis();
         check_delta  = current_time - last_check;
         if (check_delta >= resend_check_ms) {
-            process_delivery_timeouts(&context, current_time);
+            process_delivery_timeouts(ctx, current_time);
             last_check      = current_time;
             resend_check_ms = MQTT_RETRANSMISSION_CHECK_MS;
         } else {
@@ -358,6 +392,6 @@ int main(void)
     int serverfd = net_tcp_listen(DEFAULT_HOST, DEFAULT_PORT, 1);
     if (serverfd < 0)
         return -1;
-    server_start(serverfd);
+    server_start(&context, serverfd);
     return 0;
 }
