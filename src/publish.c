@@ -293,12 +293,83 @@ static int publish_properties_add_subscription(Publish_Properties *props, int16 
     return 0;
 }
 
+/**
+ * MQTT Topic Wildcard Matching Implementation
+ *
+ * MQTT wildcards:
+ * - '+' matches exactly one topic level (single-level wildcard)
+ * - '#' matches zero or more topic levels (multi-level wildcard, must be last)
+ *
+ * Examples:
+ * - "sensor/+/temperature" matches "sensor/kitchen/temperature"
+ * - "sensor/#" matches "sensor/kitchen/temperature" and "sensor/kitchen"
+ * - "sensor/+/+/data" matches "sensor/room1/temp/data"
+ */
+static bool topic_level_matches(const char *pattern, usize pattern_len, const char *topic,
+                                usize topic_len)
+{
+    if (pattern_len == 1 && pattern[0] == '+')
+        return true;
+
+    return (pattern_len == topic_len && strncmp(pattern, topic, topic_len) == 0);
+}
+
 static bool topic_matches(const Tera_Context *ctx, const char *topic, usize topic_size,
                           const Subscription_Data *subdata)
 {
-    const char *sub_topic = (const char *)arena_at(ctx->topic_arena, subdata->topic_offset);
+    const char *pattern = (const char *)arena_at(ctx->topic_arena, subdata->topic_offset);
+    usize pattern_size  = subdata->topic_size;
 
-    return (topic_size == subdata->topic_size && strncmp(topic, sub_topic, topic_size) == 0);
+    if (topic_size == pattern_size && strncmp(topic, pattern, topic_size) == 0)
+        return true;
+
+    if (pattern_size >= 1 && pattern[pattern_size - 1] == '#') {
+        // '#' must be the only character preceeded by '/'
+        if (pattern_size == 1)
+            return true;
+
+        if (pattern_size >= 2 && pattern[pattern_size - 2] == '/') {
+            usize prefix_len = pattern_size - 2;
+            if (topic_size >= prefix_len && strncmp(topic, pattern, prefix_len) == 0) {
+                return (topic_size == prefix_len ||
+                        (topic_size > prefix_len && topic[prefix_len] == '/'));
+            }
+        }
+
+        return false;
+    }
+
+    const char *pattern_pos = pattern;
+    const char *pattern_end = pattern + pattern_size;
+    const char *topic_pos   = topic;
+    const char *topic_end   = topic + topic_size;
+
+    while (pattern_pos < pattern_end && topic_pos < topic_end) {
+        // Find next level separator or end
+        const char *pattern_level_end = pattern_pos;
+        while (pattern_level_end < pattern_end && *pattern_level_end != '/')
+            pattern_level_end++;
+
+        const char *topic_level_end = topic_pos;
+        while (topic_level_end < topic_end && *topic_level_end != '/')
+            topic_level_end++;
+
+        usize pattern_level_len = pattern_level_end - pattern_pos;
+        usize topic_level_len   = topic_level_end - topic_pos;
+
+        if (!topic_level_matches(pattern_pos, pattern_level_len, topic_pos, topic_level_len))
+            return false;
+
+        pattern_pos = pattern_level_end;
+        topic_pos   = topic_level_end;
+
+        if (pattern_pos < pattern_end && *pattern_pos == '/')
+            pattern_pos++;
+        if (topic_pos < topic_end && *topic_pos == '/')
+            topic_pos++;
+    }
+
+    return (pattern_pos == pattern_end && topic_pos == topic_end);
 }
 
 void mqtt_publish_fanout_write(Tera_Context *ctx, const Client_Data *cdata,

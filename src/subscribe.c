@@ -15,6 +15,45 @@ static Subscription_Data *find_free_subscription_slot(Tera_Context *ctx)
     return NULL;
 }
 
+/**
+ * Validates that a subscription topic filter follows MQTT wildcard rules
+ * Should be called when processing SUBSCRIBE packets
+ */
+static bool topic_filter_is_valid(const char *filter, usize filter_size)
+{
+    if (filter_size == 0)
+        return false;
+
+    for (usize i = 0; i < filter_size; ++i) {
+        if (filter[i] == '#') {
+            // '#' must be at the end
+            if (i == filter_size - 1)
+                return false;
+
+            // '#' must be alone or preceded by '/'
+            if (i > 0 && filter[i - 1] == '/')
+                return false;
+        }
+
+        // Check for valid '+' filter
+        if (filter[i] == '+') {
+            // '+' must be alone in its level
+            bool valid_plus = true;
+
+            if (i > 0 && filter[i - 1] != '/')
+                valid_plus = false;
+
+            if (i < filter_size - 1 && filter[i + 1] != '/')
+                valid_plus = false;
+
+            if (!valid_plus)
+                return false;
+        }
+    }
+
+    return true;
+}
+
 MQTT_Decode_Result mqtt_subscribe_read(Tera_Context *ctx, const Client_Data *cdata,
                                        Subscribe_Result *r)
 {
@@ -47,13 +86,6 @@ MQTT_Decode_Result mqtt_subscribe_read(Tera_Context *ctx, const Client_Data *cda
                   (start_pos + total_packet_size) - buf->size);
         buf->read_pos = start_pos; // Restore position
         return MQTT_DECODE_INCOMPLETE;
-    }
-
-    usize memory_offset = arena_current_offset(ctx->topic_arena);
-    uint8 *ptr          = arena_alloc(ctx->topic_arena, packet_length);
-    if (!ptr) {
-        // TODO handle case
-        log_critical("bump arena OOM");
     }
 
     if (buffer_read_struct(buf, "H", &id) != sizeof(uint16))
@@ -94,21 +126,29 @@ MQTT_Decode_Result mqtt_subscribe_read(Tera_Context *ctx, const Client_Data *cda
         Subscription_Data *tdata = find_free_subscription_slot(ctx);
         if (!tdata)
             return MQTT_DECODE_ERROR;
-        tdata->client_id    = cdata->conn_id;
-        tdata->active       = true;
-        tdata->id           = sub_id > 0 ? sub_id : -1;
+        tdata->client_id = cdata->conn_id;
+        tdata->active    = true;
+        tdata->id        = sub_id > 0 ? sub_id : -1;
         // Read length bytes of the first topic filter
-        tdata->topic_offset = memory_offset;
 
         if (buffer_read_struct(buf, "H", &tdata->topic_size) != sizeof(uint16))
             return MQTT_DECODE_ERROR;
 
         packet_length -= sizeof(uint16);
 
+        tdata->topic_offset = arena_current_offset(ctx->topic_arena);
+        uint8 *ptr          = arena_alloc(ctx->topic_arena, tdata->topic_size);
+        if (!ptr) {
+            // TODO handle case
+            log_critical("bump arena OOM");
+        }
+
         if (buffer_read_binary(ptr, buf, tdata->topic_size) != tdata->topic_size)
             return MQTT_DECODE_ERROR;
 
-        memory_offset += tdata->topic_size;
+        if (!topic_filter_is_valid((const char *)ptr, tdata->topic_size))
+            return MQTT_DECODE_INVALID;
+
         packet_length -= tdata->topic_size;
 
         if (buffer_read_struct(buf, "B", &tdata->options) != sizeof(uint8))

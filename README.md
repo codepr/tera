@@ -98,8 +98,8 @@ make
 There is a small working core at the moment, with a handful of basic features, planned work
 to enrich it
 
-- Support for all the MQTTv5 features ❌
-    - Proper topic support, wildcards etc ❌
+- Support for all the MQTTv5 features ⚠️
+    - Proper topic support, wildcards etc ⚠️
     - ...
 - Move memory allocation to zero'ed heap memory  ❌
 - Compaction of data segments ❌
