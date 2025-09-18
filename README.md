@@ -1,7 +1,5 @@
-Tera
-====
-
-# Data-Oriented MQTT Broker
+Tera - Data-Oriented MQTT Broker
+================================
 
 This project is an extremely lightweight, high-performance MQTT broker designed
 for resource-constrained and real-time environments. It is built from the
