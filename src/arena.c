@@ -55,6 +55,7 @@ uintptr_t arena_current_offset(const Arena *a)
 }
 
 void *arena_alloc(Arena *a, usize size) { return arena_alloc_align(a, size, DEFAULT_ALIGNMENT); }
+void *arena_at(const Arena *a, uintptr_t offset) { return &a->buf[offset]; }
 
 void arena_reset(Arena *a)
 {

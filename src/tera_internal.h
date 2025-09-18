@@ -105,8 +105,7 @@ static inline Data_Flags data_flags_get(uint8 byte)
                                  .active = (uint8)(((byte) >> 4) & 0x01)}};
 }
 
-static inline Data_Flags data_flags_set(bool retain, uint8 qos, bool dup, bool active,
-                                        bool acknowledged)
+static inline Data_Flags data_flags_set(bool retain, uint8 qos, bool dup, bool active)
 {
     return (Data_Flags){.bits = {.retain = retain, .qos = qos, .dup = dup, .active = active}};
 }
@@ -140,10 +139,4 @@ static inline void tera_context_init(Tera_Context *ctx)
 
     for (usize i = 0; i < MAX_PUBLISHED_MESSAGES; ++i)
         ctx->properties_data[i].active = false;
-}
-
-static inline uint8 *tera_topic_data_buffer_at(usize index) { return &topic_data_buffer[index]; }
-static inline uint8 *tera_message_data_buffer_at(usize index)
-{
-    return &message_data_buffer[index];
 }

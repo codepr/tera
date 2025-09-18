@@ -11,7 +11,7 @@ static Published_Message *find_free_message_slot(Tera_Context *ctx)
         if (data_flags_active_get(published_msg->options))
             continue;
 
-        Data_Flags flags       = data_flags_set(false, 0, false, true, true);
+        Data_Flags flags       = data_flags_set(false, 0, false, true);
         published_msg->options = flags.value;
 
         break;
@@ -178,9 +178,8 @@ MQTT_Decode_Result mqtt_publish_read(Tera_Context *ctx, const Client_Data *cdata
     }
 
     Published_Message *message = find_free_message_slot(ctx);
-    Data_Flags flags =
-        data_flags_set(header.bits.retain, header.bits.qos, header.bits.dup, true, true);
-    message->options      = flags.value;
+    Data_Flags flags = data_flags_set(header.bits.retain, header.bits.qos, header.bits.dup, true);
+    message->options = flags.value;
 
     message->topic_offset = arena_current_offset(ctx->message_arena);
     if (buffer_read_struct(buf, "H", &message->topic_size) != sizeof(uint16))
@@ -311,9 +310,10 @@ static int publish_properties_add_subscription(Publish_Properties *props, int16 
     return 0;
 }
 
-static bool topic_matches(const char *topic, usize topic_size, const Subscription_Data *subdata)
+static bool topic_matches(const Tera_Context *ctx, const char *topic, usize topic_size,
+                          const Subscription_Data *subdata)
 {
-    const char *sub_topic = (const char *)tera_topic_data_buffer_at(subdata->topic_offset);
+    const char *sub_topic = (const char *)arena_at(ctx->topic_arena, subdata->topic_offset);
 
     return (topic_size == subdata->topic_size && strncmp(topic, sub_topic, topic_size) == 0);
 }
@@ -321,10 +321,10 @@ static bool topic_matches(const char *topic, usize topic_size, const Subscriptio
 static void mqtt_publish_fanout(Tera_Context *ctx, uint16 index, const Client_Data *cdata)
 {
     Published_Message *pub_msg = &ctx->published_messages[index];
-    const char *publish_topic  = (const char *)tera_message_data_buffer_at(pub_msg->topic_offset);
+    const char *publish_topic  = (const char *)arena_at(ctx->message_arena, pub_msg->topic_offset);
     isize written_bytes        = 0;
     Publish_Properties *props  = &ctx->properties_data[pub_msg->property_id];
-    const uint8 *payload       = tera_message_data_buffer_at(pub_msg->message_offset);
+    const uint8 *payload       = arena_at(ctx->message_arena, pub_msg->message_offset);
     Buffer *buf                = NULL;
     Data_Flags message_flags   = data_flags_get(pub_msg->options);
 
@@ -333,7 +333,7 @@ static void mqtt_publish_fanout(Tera_Context *ctx, uint16 index, const Client_Da
             continue;
 
         Subscription_Data *subscription_data = &ctx->subscription_data[i];
-        if (!topic_matches(publish_topic, pub_msg->topic_size, subscription_data))
+        if (!topic_matches(ctx, publish_topic, pub_msg->topic_size, subscription_data))
             continue;
 
         // Create delivery record for this subscription
@@ -481,8 +481,8 @@ void mqtt_publish_retry(Tera_Context *ctx, Message_Delivery *delivery)
     Published_Message *pub_msg = &ctx->published_messages[delivery->published_msg_id];
     Buffer *buf                = &ctx->connection_data[delivery->client_id].send_buffer;
     Publish_Properties *props  = &ctx->properties_data[pub_msg->property_id];
-    const uint8 *payload       = tera_message_data_buffer_at(pub_msg->message_offset);
-    const char *publish_topic  = (const char *)tera_message_data_buffer_at(pub_msg->topic_offset);
+    const uint8 *payload       = arena_at(ctx->message_arena, pub_msg->message_offset);
+    const char *publish_topic  = (const char *)arena_at(ctx->message_arena, pub_msg->topic_offset);
     isize written_bytes        = 0;
     buffer_reset(buf);
 
