@@ -57,6 +57,28 @@ static void broadcast_replies(Tera_Context *ctx)
 }
 
 /**
+ * When a PUBLISH message is received, we first need to find a metadata
+ * slot in the published messages table, then we can proceed at decoding
+ * it from the raw binary payload.
+ */
+static Published_Message *find_free_published_message(Tera_Context *ctx)
+{
+    Published_Message *published_msg = NULL;
+    for (usize i = 0; i < MAX_PUBLISHED_MESSAGES; ++i) {
+        published_msg = &ctx->published_messages[i];
+        if (data_flags_active_get(published_msg->options))
+            continue;
+
+        Data_Flags flags       = data_flags_set(false, 0, false, true);
+        published_msg->options = flags.value;
+
+        break;
+    }
+
+    return published_msg;
+}
+
+/**
  * Once a published message have concluded its lifecycle, e.g.
  * - A PUBLISH message that must be acknowledged by the publisher
  * - A PUBLISH message that must be akcnowledged by 1 or more subscribers,
@@ -219,9 +241,12 @@ static Transport_Result process_client_messages(Tera_Context *ctx, int fd)
             // TODO
             break;
         case PUBLISH: {
-            result = mqtt_publish_read(ctx, client);
-            if (result == MQTT_DECODE_SUCCESS)
-                mqtt_publish_write(ctx, client);
+            Published_Message *out = find_free_published_message(ctx);
+            if (out) {
+                result = mqtt_publish_read(ctx, client, out);
+                if (result == MQTT_DECODE_SUCCESS)
+                    mqtt_publish_fanout_write(ctx, client, out);
+            }
             break;
         }
         case PUBACK: {

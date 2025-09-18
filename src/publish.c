@@ -3,23 +3,6 @@
 #include "tera_internal.h"
 #include <string.h>
 
-static Published_Message *find_free_message_slot(Tera_Context *ctx)
-{
-    Published_Message *published_msg = NULL;
-    for (usize i = 0; i < MAX_PUBLISHED_MESSAGES; ++i) {
-        published_msg = &ctx->published_messages[i];
-        if (data_flags_active_get(published_msg->options))
-            continue;
-
-        Data_Flags flags       = data_flags_set(false, 0, false, true);
-        published_msg->options = flags.value;
-
-        break;
-    }
-
-    return published_msg;
-}
-
 static Publish_Properties *find_free_property_slot(Tera_Context *ctx, usize *property_id)
 {
     // TODO make this useful (id recycling etc etc)
@@ -165,7 +148,8 @@ static MQTT_Decode_Result mqtt_publish_properties_read(Buffer *buf, Publish_Prop
     return MQTT_DECODE_SUCCESS;
 }
 
-MQTT_Decode_Result mqtt_publish_read(Tera_Context *ctx, const Client_Data *cdata)
+MQTT_Decode_Result mqtt_publish_read(Tera_Context *ctx, const Client_Data *cdata,
+                                     Published_Message *message)
 {
     Buffer *buf            = &ctx->connection_data[cdata->conn_id].recv_buffer;
     usize consumed         = 0;
@@ -177,7 +161,6 @@ MQTT_Decode_Result mqtt_publish_read(Tera_Context *ctx, const Client_Data *cdata
         return MQTT_DECODE_ERROR;
     }
 
-    Published_Message *message = find_free_message_slot(ctx);
     Data_Flags flags = data_flags_set(header.bits.retain, header.bits.qos, header.bits.dup, true);
     message->options = flags.value;
 
@@ -318,15 +301,15 @@ static bool topic_matches(const Tera_Context *ctx, const char *topic, usize topi
     return (topic_size == subdata->topic_size && strncmp(topic, sub_topic, topic_size) == 0);
 }
 
-static void mqtt_publish_fanout(Tera_Context *ctx, uint16 index, const Client_Data *cdata)
+void mqtt_publish_fanout_write(Tera_Context *ctx, const Client_Data *cdata,
+                               Published_Message *pub_msg)
 {
-    Published_Message *pub_msg = &ctx->published_messages[index];
-    const char *publish_topic  = (const char *)arena_at(ctx->message_arena, pub_msg->topic_offset);
-    isize written_bytes        = 0;
-    Publish_Properties *props  = &ctx->properties_data[pub_msg->property_id];
-    const uint8 *payload       = arena_at(ctx->message_arena, pub_msg->message_offset);
-    Buffer *buf                = NULL;
-    Data_Flags message_flags   = data_flags_get(pub_msg->options);
+    const char *publish_topic = (const char *)arena_at(ctx->message_arena, pub_msg->topic_offset);
+    isize written_bytes       = 0;
+    Publish_Properties *props = &ctx->properties_data[pub_msg->property_id];
+    const uint8 *payload      = arena_at(ctx->message_arena, pub_msg->message_offset);
+    Buffer *buf               = NULL;
+    Data_Flags message_flags  = data_flags_get(pub_msg->options);
 
     for (usize i = 0; i < MAX_SUBSCRIPTIONS; ++i) {
         if (!ctx->subscription_data[i].active)
@@ -429,7 +412,7 @@ static void mqtt_publish_fanout(Tera_Context *ctx, uint16 index, const Client_Da
         pub_msg->options = data_flags_active_set(pub_msg->options, 0);
         break;
     case AT_LEAST_ONCE:
-        // Check if one exits already first
+        // Check if a delivery exists already first
         Message_Delivery *delivery = find_free_delivery_slot(ctx, cdata->conn_id, pub_msg->id);
         if (delivery->active)
             break;
@@ -438,7 +421,7 @@ static void mqtt_publish_fanout(Tera_Context *ctx, uint16 index, const Client_Da
         pub_msg->options = data_flags_active_set(pub_msg->options, 0);
         break;
     case EXACTLY_ONCE: {
-        // Create delivery record for this subscription, check if one exits already first
+        // Create delivery record for this subscription, check if one exists already first
         Message_Delivery *delivery = find_free_delivery_slot(ctx, cdata->conn_id, pub_msg->id);
         if (delivery->active)
             break;
@@ -466,16 +449,6 @@ static void mqtt_publish_fanout(Tera_Context *ctx, uint16 index, const Client_Da
     default:
         // Unreachable
         break;
-    }
-}
-
-void mqtt_publish_write(Tera_Context *ctx, const Client_Data *cdata)
-{
-    for (usize i = 0; i < MAX_PUBLISHED_MESSAGES; ++i) {
-        if (!data_flags_active_get(ctx->published_messages[i].options))
-            continue;
-
-        mqtt_publish_fanout(ctx, i, cdata);
     }
 }
 

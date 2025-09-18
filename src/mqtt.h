@@ -456,8 +456,13 @@ typedef struct publish_properties {
  * but in reality it can be even just one byte length; the function starts to
  * unpack from the Variable Header position to the end of the packet as stated
  * by the total length expected.
+ *
+ * The functions accepts a pointer to a Published_Message, this is pointing to
+ * a position in the published messages table, not in use by any previous message,
+ * to be properly filled in with the metadata of the incoming PUBLISH.
  */
-MQTT_Decode_Result mqtt_publish_read(Tera_Context *ctx, const Client_Data *cdata);
+MQTT_Decode_Result mqtt_publish_read(Tera_Context *ctx, const Client_Data *cdata,
+                                     Published_Message *message);
 
 // Maximum topic filters per SUBSCRIBE packet (reasonable limit)
 #define MAX_TOPIC_FILTERS_PER_SUBSCRIBE 50
@@ -504,8 +509,21 @@ typedef enum {
 
 void mqtt_suback_write(Tera_Context *ctx, const Client_Data *cdata, const Subscribe_Result *r);
 
-void mqtt_publish_write(Tera_Context *ctx, const Client_Data *cdata);
+/**
+ * Write in serialized binary format the PUBLISH packet to be sent to all the
+ * matching subscribers.
+ * The functions accepts a pointer to a Published_Message, this is pointing to
+ * a position in the published messages table, not in use by any previous message,
+ * to be properly filled in with the metadata of the incoming PUBLISH.
+ */
+void mqtt_publish_fanout_write(Tera_Context *ctx, const Client_Data *cdata,
+                               Published_Message *pub_msg);
 
+/**
+ * This function is meant to be used when a retry is attempted, so it assumes
+ * a Message_Delivery is already active for a certain client, be it a publisher
+ * or a subscriber.
+ */
 void mqtt_publish_retry(Tera_Context *ctx, Message_Delivery *delivery);
 
 void mqtt_pingresp_write(Tera_Context *ctx, const Client_Data *cdata);
