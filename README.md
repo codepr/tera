@@ -105,3 +105,4 @@ to enrich it
 - Allow to compile with no heap memory allocation  ❌
 - Configuration handling  ❌
 - Session management and persistence ❌
+- QUIC support ❌
