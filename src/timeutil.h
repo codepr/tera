@@ -3,6 +3,8 @@
 #include "types.h"
 #include <time.h>
 
+void init_boot_time(void);
+uint32 current_millis_relative(void);
 time_t current_seconds(void);
 int64 current_millis(void);
 int64 current_micros(void);

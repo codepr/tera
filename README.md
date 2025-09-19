@@ -57,11 +57,11 @@ of the scope of this small project, so the final choice will be, driven by a
 config file, to run it with a default, way lighter setting, based on the
 following, roughly estimated premises:
 
-- **Memory budget:** Assume in the order of 1-5 MB
+- **Memory budget:** Assume in the order of 5-20 MB
 - **Per-client overhead:** A few hundred of bytes of metadata
 - **Number of active clients:** In the range of 100 - 1000, allowing for a small memory
   footprint and keeps data within CPU caches (L1, L2, L3) for optimal performance
-- **Max payload size:** A limit of 1 KB to 4 KB per message would be very reasonable.
+- **Max payload size:** A limit of 1 KB to 4 KB per message seems reasonable.
   This accommodates common use cases like sensor data, control commands, and simple status updates.
 - **Larger payloads handling:** Simply reject any incoming message that exceeds this pre-defined limit.
   If in need of larger data, like firmware updates or images, a different protocol would be suggesed or
@@ -100,6 +100,7 @@ to enrich it
 
 - Support for all the MQTTv5 features ⚠️
     - Proper topic support, wildcards etc ⚠️
+    - Will & Testament ❌
     - ...
 - Move memory allocation to zero'ed heap memory  ❌
 - Compaction of data segments ❌

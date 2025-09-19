@@ -4,15 +4,15 @@
 
 struct arena {
     uint8 *buf;
-    usize size;
-    usize prev_offset;
-    usize curr_offset;
+    uint32 size;
+    uint32 prev_offset;
+    uint32 curr_offset;
 };
 
 typedef struct arena Arena;
 
-void arena_init(Arena *a, void *buffer, usize buffer_size);
-void *arena_alloc(Arena *a, usize size);
+void arena_init(Arena *a, void *buffer, uint32 buffer_size);
+void *arena_alloc(Arena *a, uint32 size);
 void *arena_at(const Arena *a, uintptr_t offset);
 void arena_reset(Arena *a);
 uintptr_t arena_current_offset(const Arena *a);

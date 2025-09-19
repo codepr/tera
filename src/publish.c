@@ -157,9 +157,12 @@ MQTT_Decode_Result mqtt_publish_read(Tera_Context *ctx, const Client_Data *cdata
 
     isize fixed_header_len = mqtt_fixed_header_read(buf, &header);
     if (fixed_header_len < 0) {
-        log_error("Failed to read packet header");
+        log_error(">>>>: Failed to read packet header");
         return MQTT_DECODE_ERROR;
     }
+
+    if (header.remaining_length > MAX_PACKET_SIZE)
+        return MQTT_DECODE_OUT_OF_BOUNDS;
 
     Data_Flags flags = data_flags_set(header.bits.retain, header.bits.qos, header.bits.dup, true);
     message->options = flags.value;
@@ -170,13 +173,13 @@ MQTT_Decode_Result mqtt_publish_read(Tera_Context *ctx, const Client_Data *cdata
 
     consumed += sizeof(uint16);
 
-    uint8 *ptr = arena_alloc(ctx->message_arena, message->topic_size);
-    if (!ptr) {
+    uint8 *topic_ptr = arena_alloc(ctx->message_arena, message->topic_size);
+    if (!topic_ptr) {
         // TODO handle case
         log_critical("bump arena OOM");
     }
 
-    if (buffer_read_binary(ptr, buf, message->topic_size) != message->topic_size)
+    if (buffer_read_binary(topic_ptr, buf, message->topic_size) != message->topic_size)
         return MQTT_DECODE_ERROR;
 
     consumed += message->topic_size;
@@ -204,14 +207,14 @@ MQTT_Decode_Result mqtt_publish_read(Tera_Context *ctx, const Client_Data *cdata
     message->message_offset = arena_current_offset(ctx->message_arena);
     message->message_size   = header.remaining_length - consumed;
 
-    ptr                     = arena_alloc(ctx->message_arena, message->message_size);
-    if (!ptr) {
+    uint8 *message_ptr      = arena_alloc(ctx->message_arena, message->message_size);
+    if (!message_ptr) {
         // TODO handle case
         log_critical("bump arena OOM");
     }
 
     if (message->message_size > 0) {
-        if (buffer_read_binary(ptr, buf, message->message_size) != message->message_size)
+        if (buffer_read_binary(message_ptr, buf, message->message_size) != message->message_size)
             return MQTT_DECODE_ERROR;
         consumed += message->message_size;
     }
@@ -474,18 +477,19 @@ void mqtt_publish_fanout_write(Tera_Context *ctx, const Client_Data *cdata,
         uint8 granted_qos          = subdata->options & 0x03;
         delivery->delivery_qos =
             message_flags.bits.qos >= granted_qos ? granted_qos : message_flags.bits.qos;
-        delivery->state        = (delivery->delivery_qos == AT_MOST_ONCE)    ? MSG_ACKNOWLEDGED
-                                 : (delivery->delivery_qos == AT_LEAST_ONCE) ? MSG_AWAITING_PUBACK
-                                                                             : MSG_AWAITING_PUBREC;
-        delivery->last_sent_at = current_millis();
-        delivery->next_retry_at =
-            (delivery->delivery_qos > AT_MOST_ONCE) ? delivery->last_sent_at + RETRY_TIMEOUT_MS : 0;
-        delivery->retry_count = 0;
-        delivery->active      = (delivery->delivery_qos != AT_MOST_ONCE);
+        delivery->state         = (delivery->delivery_qos == AT_MOST_ONCE)    ? MSG_ACKNOWLEDGED
+                                  : (delivery->delivery_qos == AT_LEAST_ONCE) ? MSG_AWAITING_PUBACK
+                                                                              : MSG_AWAITING_PUBREC;
+        delivery->last_sent_at  = current_millis_relative();
+        delivery->next_retry_at = (delivery->delivery_qos > AT_MOST_ONCE)
+                                      ? delivery->last_sent_at + MQTT_RETRY_TIMEOUT_MS
+                                      : 0;
+        delivery->retry_count   = 0;
+        delivery->active        = (delivery->delivery_qos != AT_MOST_ONCE);
 
         // Write to subscription buffer
 
-        buf                   = &ctx->connection_data[subdata->client_id].send_buffer;
+        buf                     = &ctx->connection_data[subdata->client_id].send_buffer;
         buffer_reset(buf);
 
         // Remaining Variable Length
@@ -572,8 +576,8 @@ void mqtt_publish_fanout_write(Tera_Context *ctx, const Client_Data *cdata,
          */
         delivery->delivery_qos     = message_flags.bits.qos;
         delivery->state            = MSG_AWAITING_PUBREL;
-        delivery->last_sent_at     = current_millis();
-        delivery->next_retry_at    = delivery->last_sent_at + RETRY_TIMEOUT_MS;
+        delivery->last_sent_at     = current_millis_relative();
+        delivery->next_retry_at    = delivery->last_sent_at + MQTT_RETRY_TIMEOUT_MS;
         delivery->retry_count      = 0;
         delivery->active           = true;
 

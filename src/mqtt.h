@@ -126,8 +126,8 @@ typedef struct subscription_data {
     uint16 mid;
     int16 id;
     // Wildcard handling info
-    Topic_Filter_Type type;
     uint8 prefix_levels;
+    Topic_Filter_Type type : 3;
     // General management for reusability
     uint8 options;
     bool active;
@@ -146,17 +146,17 @@ typedef enum delivery_state {
 
 typedef struct message_delivery {
     // Retransmission fields
-    int64 last_sent_at;   // Last transmission timestamp
-    int64 next_retry_at;  // When to retry (0 = don't retry)
-    uint16 retry_count;   // Number of retries attempted
-    Delivery_State state; // Current delivery state
+    uint32 last_sent_at;  // Last transmission timestamp
+    uint32 next_retry_at; // When to retry (0 = don't retry)
 
     // Message metadata for topic, payload
-    uint16 client_id;        // Target client (subscriber)
-    uint16 published_msg_id; // Points to a Published_Message
-    uint16 message_id;       // MQTT packet ID for client
-    uint8 delivery_qos;      // Negotiated QoS (min between publisher/subscriber)
-    bool active;             // Wether the delivery is free to be used
+    uint16 client_id;         // Target client (subscriber)
+    uint16 published_msg_id;  // Points to a Published_Message
+    uint16 message_id;        // MQTT packet ID for client
+    uint8 retry_count;        // Number of retries attempted
+    Delivery_State state : 4; // Current delivery state
+    uint8 delivery_qos : 2;   // Negotiated QoS (min between publisher/subscriber)
+    bool active : 1;          // Wether the delivery is free to be used
 } Message_Delivery;
 
 typedef struct published_message {
@@ -174,10 +174,11 @@ typedef struct client_data Client_Data;
 typedef struct tera_context Tera_Context;
 
 typedef enum {
-    MQTT_DECODE_SUCCESS    = 0,
-    MQTT_DECODE_ERROR      = -1,
-    MQTT_DECODE_INCOMPLETE = -2,
-    MQTT_DECODE_INVALID    = -3
+    MQTT_DECODE_SUCCESS       = 0,
+    MQTT_DECODE_ERROR         = -1,
+    MQTT_DECODE_INCOMPLETE    = -2,
+    MQTT_DECODE_INVALID       = -3,
+    MQTT_DECODE_OUT_OF_BOUNDS = -4
 } MQTT_Decode_Result;
 
 static inline usize mqtt_variable_length_encoded_length(usize value)

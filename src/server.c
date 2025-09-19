@@ -127,14 +127,14 @@ static void process_delivery_timeouts(Tera_Context *ctx, int64 current_time)
             continue;
 
         if (delivery->next_retry_at > 0 && current_time >= delivery->next_retry_at) {
-            if (delivery->retry_count >= MAX_RETRY_ATTEMPTS) {
+            if (delivery->retry_count >= MQTT_MAX_RETRY_ATTEMPTS) {
                 delivery->state  = MSG_EXPIRED;
                 delivery->active = false;
                 free_published_message(ctx, delivery->published_msg_id);
             } else {
                 delivery->retry_count++;
                 delivery->last_sent_at  = current_time;
-                delivery->next_retry_at = current_time + RETRY_TIMEOUT_MS;
+                delivery->next_retry_at = current_time + MQTT_RETRY_TIMEOUT_MS;
                 mqtt_publish_retry(ctx, delivery);
             }
         }
@@ -303,6 +303,10 @@ static Transport_Result process_client_messages(Tera_Context *ctx, int fd)
             break;
         }
 
+        /*
+         * Write out to clients, after a full packet has been processed in.
+         * Just send out all bytes stored in the reply buffer of each connected client.
+         */
         broadcast_replies(ctx);
     }
 
@@ -311,7 +315,7 @@ static Transport_Result process_client_messages(Tera_Context *ctx, int fd)
     return TRANSPORT_SUCCESS;
 }
 
-static void client_connection_add(Tera_Context *ctx, int fd)
+static void add_connection(Tera_Context *ctx, int fd)
 {
     // Already registered
     if (ctx->connection_data[fd].socket_fd > 0)
@@ -333,7 +337,7 @@ static void client_connection_add(Tera_Context *ctx, int fd)
     buffer_init(&ctx->connection_data[fd].send_buffer, write_buf, MAX_PACKET_SIZE);
 }
 
-static void client_connection_shutdown(Tera_Context *ctx, int fd)
+static void shutdown_connection(Tera_Context *ctx, int fd)
 {
     for (usize i = 0; i < MAX_SUBSCRIPTIONS; ++i) {
         if (ctx->subscription_data[i].client_id == fd)
@@ -383,18 +387,18 @@ static int server_start(Tera_Context *ctx, int serverfd)
 
                 log_info(">>>>: New client connected");
                 iomux_add(iomux, clientfd, IOMUX_READ);
-                client_connection_add(ctx, clientfd);
+                add_connection(ctx, clientfd);
 
                 err = process_client_messages(ctx, clientfd);
                 if (err == TRANSPORT_DISCONNECT) {
-                    client_connection_shutdown(ctx, fd);
+                    shutdown_connection(ctx, fd);
                     continue;
                 }
 
             } else if (ctx->connection_data[fd].socket_fd == fd) {
                 err = process_client_messages(ctx, fd);
                 if (err == TRANSPORT_DISCONNECT) {
-                    client_connection_shutdown(ctx, fd);
+                    shutdown_connection(ctx, fd);
                     continue;
                 }
             }
@@ -404,7 +408,7 @@ static int server_start(Tera_Context *ctx, int serverfd)
         // the PUBLISH messages, the reason can be anything, network faults
         // among the most common. This check ensure that a number of attempts
         // is retried before finally giving up.
-        current_time = current_millis();
+        current_time = current_millis_relative();
         check_delta  = current_time - last_check;
         if (check_delta >= resend_check_ms) {
             process_delivery_timeouts(ctx, current_time);
@@ -421,15 +425,24 @@ static int server_start(Tera_Context *ctx, int serverfd)
     return 0;
 }
 
+static inline usize broker_memory(void)
+{
+    return sizeof(Tera_Context) + context.io_arena->size + context.topic_arena->size +
+           context.client_arena->size + context.message_arena->size;
+}
+
 #define DEFAULT_HOST "127.0.0.1"
 #define DEFAULT_PORT 16768
 
 int main(void)
 {
+    init_boot_time();
     tera_context_init(&context);
     int serverfd = net_tcp_listen(DEFAULT_HOST, DEFAULT_PORT, 1);
     if (serverfd < 0)
         return -1;
+
+    log_info(">>>>: Memory at boot-up: %.2fMB", ((float)broker_memory() / (float)(1024 * 1024)));
     server_start(&context, serverfd);
     return 0;
 }

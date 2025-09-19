@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+static uint64 boot_time = 0;
+
 static const struct {
     char unit;
     int64 mul;
@@ -9,6 +11,10 @@ static const struct {
               {'m', 60 * (int64)1e9},
               {'h', 60 * 60 * (int64)1e9},
               {'d', 24 * 60 * 60 * (int64)1e9}};
+
+void init_boot_time(void) { boot_time = current_millis(); }
+
+uint32 current_millis_relative(void) { return current_millis() - boot_time; }
 
 int64 current_nanos(void)
 {

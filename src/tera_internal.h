@@ -14,9 +14,11 @@
 #define MAX_MESSAGE_DATA_BUFFER_SIZE (MAX_DELIVERY_MESSAGES * MAX_PACKET_SIZE)
 
 #define MAX_SUBSCRIPTIONS            8192
-#define MAX_TOPIC_DATA_BUFFER_SIZE   (MAX_SUBSCRIPTIONS) * (MAX_PACKET_SIZE)
+#define MAX_TOPIC_DATA_BUFFER_SIZE   (MAX_SUBSCRIPTIONS) * 64
 
 #define MQTT_RETRANSMISSION_CHECK_MS 5000
+#define MQTT_MAX_RETRY_ATTEMPTS      5
+#define MQTT_RETRY_TIMEOUT_MS        20000
 
 // Main pools of pre-allocated data
 // TODO use a bump allocator on heap
@@ -66,9 +68,6 @@ typedef struct connection_data {
     int socket_fd;
     bool connected;
 } Connection_Data;
-
-#define MAX_RETRY_ATTEMPTS 5
-#define RETRY_TIMEOUT_MS   20000
 
 /**
  * Main server context structure containing all global state for the MQTT broker.

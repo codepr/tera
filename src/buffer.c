@@ -6,7 +6,7 @@
 #include <stdarg.h>
 #include <string.h>
 
-void buffer_init(Buffer *buffer, void *back_buffer, usize size)
+void buffer_init(Buffer *buffer, void *back_buffer, uint32 size)
 {
     buffer->data = back_buffer;
     buffer->size = size;
@@ -19,7 +19,7 @@ void buffer_reset(Buffer *buffer)
     buffer->write_pos = 0;
 }
 
-int buffer_write(Buffer *buffer, const void *data, usize length)
+int buffer_write(Buffer *buffer, const void *data, uint32 length)
 {
     if (!buffer || !data)
         return -1;
@@ -33,7 +33,7 @@ int buffer_write(Buffer *buffer, const void *data, usize length)
     return 0;
 }
 
-int buffer_read(Buffer *buffer, void *out, usize length)
+int buffer_read(Buffer *buffer, void *out, uint32 length)
 {
     if (!buffer || !out)
         return -1;
@@ -47,7 +47,7 @@ int buffer_read(Buffer *buffer, void *out, usize length)
     return 0;
 }
 
-int buffer_peek(Buffer *buffer, void *out, usize length)
+int buffer_peek(Buffer *buffer, void *out, uint32 length)
 {
     if (!buffer || !out)
         return -1;
@@ -60,7 +60,7 @@ int buffer_peek(Buffer *buffer, void *out, usize length)
     return 0;
 }
 
-int buffer_skip(Buffer *buffer, usize length)
+int buffer_skip(Buffer *buffer, uint32 length)
 {
     if (!buffer)
         return -1;
@@ -73,7 +73,7 @@ int buffer_skip(Buffer *buffer, usize length)
 }
 
 bool buffer_is_empty(const Buffer *buffer) { return buffer->read_pos >= buffer->write_pos; }
-usize buffer_available(const Buffer *buffer) { return buffer->write_pos - buffer->read_pos; }
+uint32 buffer_available(const Buffer *buffer) { return buffer->write_pos - buffer->read_pos; }
 
 isize buffer_net_recv(Buffer *buffer, int fd)
 {
@@ -146,7 +146,7 @@ isize buffer_net_send(Buffer *buffer, int fd)
  *  (string is extracted based on its stored length, but 's' can be
  *  prepended with a max length)
  */
-usize buffer_read_struct(Buffer *buffer, const char *fmt, ...)
+uint32 buffer_read_struct(Buffer *buffer, const char *fmt, ...)
 {
     va_list ap;
 
@@ -163,7 +163,7 @@ usize buffer_read_struct(Buffer *buffer, const char *fmt, ...)
     uint64 *Q;
 
     char *s; // strings
-    usize maxstrlen = 0, size = buffer->read_pos;
+    uint32 maxstrlen = 0, size = buffer->read_pos;
 
     va_start(ap, fmt);
 
@@ -260,7 +260,7 @@ usize buffer_read_struct(Buffer *buffer, const char *fmt, ...)
  *
  *  (16-bit unsigned length is automatically prepended to strings)
  */
-usize buffer_write_struct(Buffer *buffer, const char *fmt, ...)
+uint32 buffer_write_struct(Buffer *buffer, const char *fmt, ...)
 {
     va_list ap;
 
@@ -277,7 +277,7 @@ usize buffer_write_struct(Buffer *buffer, const char *fmt, ...)
     uint64 Q;
 
     char *s; // strings
-    usize maxstrlen = 0, size = buffer->write_pos;
+    uint32 maxstrlen = 0, size = buffer->write_pos;
 
     va_start(ap, fmt);
 
@@ -354,21 +354,21 @@ usize buffer_write_struct(Buffer *buffer, const char *fmt, ...)
     return size;
 }
 
-usize buffer_read_binary(void *dst, Buffer *buf, usize len)
+uint32 buffer_read_binary(void *dst, Buffer *buf, uint32 len)
 {
     char fmt[8] = {0};
-    snprintf(fmt, 8, "%lus", len);
+    snprintf(fmt, 8, "%us", len);
     return buffer_read_struct(buf, fmt, dst);
 }
 
-usize buffer_write_binary(Buffer *buf, const void *src, usize len)
+uint32 buffer_write_binary(Buffer *buf, const void *src, uint32 len)
 {
     char fmt[8] = {0};
-    snprintf(fmt, 8, "%lus", len);
+    snprintf(fmt, 8, "%us", len);
     return buffer_write_struct(buf, fmt, src);
 }
 
-usize buffer_write_utf8_string(Buffer *buf, const void *src, usize len)
+uint32 buffer_write_utf8_string(Buffer *buf, const void *src, uint32 len)
 {
     return buffer_write_struct(buf, "H", len) + buffer_write_binary(buf, src, len);
 }
