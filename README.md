@@ -105,7 +105,7 @@ to enrich it
 - Move memory allocation to zero'ed heap memory  ❌
 - Compaction of data segments ❌
 - Allow to compile with no heap memory allocation  ❌
-- Configuration handling  ❌
+- Configuration handling ⚠️
 - Session management and persistence ❌
 - MQTTv3 support ❌
 - QUIC support ❌
