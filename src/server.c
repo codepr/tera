@@ -1,5 +1,6 @@
 #include "arena.h"
 #include "buffer.h"
+#include "config.h"
 #include "iomux.h"
 #include "logger.h"
 #include "mqtt.h"
@@ -437,12 +438,17 @@ static inline usize broker_memory(void)
 int main(void)
 {
     init_boot_time();
+    config_set_default();
     tera_context_init(&context);
+
+    log_info(">>>>: Memory at boot-up: %.2fMB", ((float)broker_memory() / (float)(1024 * 1024)));
+    log_info(">>>>: Settings");
+    config_print();
+
     int serverfd = net_tcp_listen(DEFAULT_HOST, DEFAULT_PORT, 1);
     if (serverfd < 0)
         return -1;
 
-    log_info(">>>>: Memory at boot-up: %.2fMB", ((float)broker_memory() / (float)(1024 * 1024)));
     server_start(&context, serverfd);
     return 0;
 }

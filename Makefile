@@ -24,7 +24,8 @@ TERA_SRC = src/timeutil.c       \
            src/pingreq.c        \
            src/pingresp.c       \
            src/arena.c          \
-	   src/buffer.c         \
+	       src/buffer.c         \
+		   src/config.c         \
            src/net.c            \
            src/server.c
 TERA_OBJ = $(TERA_SRC:.c=.o)
