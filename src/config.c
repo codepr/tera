@@ -20,11 +20,11 @@ static Config_Entry *config_map[BUCKET_SIZE] = {0};
 
 static inline int simplehash(const char *key)
 {
-    unsigned int h = 0;
+    unsigned int h  = 0;
     const uint8 *in = (const uint8 *)key;
     while (*in)
         h = (h * 31) + *(in++);
-    return h  % BUCKET_SIZE;
+    return h % BUCKET_SIZE;
 }
 
 static int scan_delim(const char *ptr, char *buf, char delim)
@@ -97,7 +97,8 @@ void config_set(const char *key, const char *value)
     }
 }
 
-void config_set_default(void) {
+void config_set_default(void)
+{
     config_set("max_memory", "12");
     config_set("max_socket", "24");
 }

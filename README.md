@@ -29,6 +29,9 @@ object-oriented designs. Key tenets include:
   * **Simplicity and Predictability**: The broker is designed to be a fast, deterministic engine
       for MQTT data. Complex features that would introduce performance variability (e.g., dynamic
       resizing, large message support) are intentionally excluded.
+  * **No dependencies**: Everything is self-contained in the system and developed ad-hoc for the
+      required use. In case of absolutely required external dependencies to be brought in, prefer
+      single header libraries that can be copied straight away as-is in the `/lib` directory.
 
 ## Tradeoffs
 
