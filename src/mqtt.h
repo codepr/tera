@@ -112,12 +112,23 @@ static inline uint8 mqtt_type_set(uint8 byte, uint8 value)
     return ((byte) & ~0xF0) | (((value) & 0x0F) << 4);
 }
 
+typedef enum topic_filter_type {
+    TFT_WILDCARD_NONE,
+    TFT_WILDCARD_PLUS,
+    TFT_WILDCARD_HASH
+} Topic_Filter_Type;
+
 typedef struct subscription_data {
+    // Subscription metadata
     uint16 client_id; // Index of the subscribing client in Client_Data array
     uint16 topic_offset;
     uint16 topic_size;
     uint16 mid;
     int16 id;
+    // Wildcard handling info
+    Topic_Filter_Type type;
+    uint8 prefix_levels;
+    // General management for reusability
     uint8 options;
     bool active;
 } Subscription_Data;

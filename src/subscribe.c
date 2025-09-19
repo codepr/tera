@@ -27,11 +27,11 @@ static bool topic_filter_is_valid(const char *filter, usize filter_size)
     for (usize i = 0; i < filter_size; ++i) {
         if (filter[i] == '#') {
             // '#' must be at the end
-            if (i == filter_size - 1)
+            if (i != filter_size - 1)
                 return false;
 
             // '#' must be alone or preceded by '/'
-            if (i > 0 && filter[i - 1] == '/')
+            if (i > 0 && filter[i - 1] != '/')
                 return false;
         }
 
@@ -137,17 +137,35 @@ MQTT_Decode_Result mqtt_subscribe_read(Tera_Context *ctx, const Client_Data *cda
         packet_length -= sizeof(uint16);
 
         tdata->topic_offset = arena_current_offset(ctx->topic_arena);
-        uint8 *ptr          = arena_alloc(ctx->topic_arena, tdata->topic_size);
-        if (!ptr) {
+        uint8 *topic_filter = arena_alloc(ctx->topic_arena, tdata->topic_size);
+        if (!topic_filter) {
             // TODO handle case
             log_critical("bump arena OOM");
         }
 
-        if (buffer_read_binary(ptr, buf, tdata->topic_size) != tdata->topic_size)
+        if (buffer_read_binary(topic_filter, buf, tdata->topic_size) != tdata->topic_size)
             return MQTT_DECODE_ERROR;
 
-        if (!topic_filter_is_valid((const char *)ptr, tdata->topic_size))
+        if (!topic_filter_is_valid((const char *)topic_filter, tdata->topic_size))
             return MQTT_DECODE_INVALID;
+
+        // Classify the filter type
+        Topic_Filter_Type type = TFT_WILDCARD_NONE;
+        uint16 prefix_levels   = 0;
+
+        for (usize i = 0; i < tdata->topic_size; ++i) {
+            if (topic_filter[i] == '#') {
+                type = TFT_WILDCARD_HASH;
+                break;
+            } else if (topic_filter[i] == '+') {
+                type = TFT_WILDCARD_PLUS;
+            } else if (topic_filter[i] == '/') {
+                prefix_levels++;
+            }
+        }
+
+        tdata->type          = type;
+        tdata->prefix_levels = prefix_levels;
 
         packet_length -= tdata->topic_size;
 

@@ -372,6 +372,69 @@ static bool topic_matches(const Tera_Context *ctx, const char *topic, usize topi
     return (pattern_pos == pattern_end && topic_pos == topic_end);
 }
 
+static bool topic_is_match(const Tera_Context *ctx, const Subscription_Data *subdata,
+                           const char *publish_topic, uint16 topic_size)
+{
+    bool is_match = false;
+    switch (subdata->type) {
+    case TFT_WILDCARD_NONE:
+        // The simplest case, no wildcards, just straight comparison of the topics
+        if (topic_size == subdata->topic_size) {
+            const char *sub_topic = (const char *)arena_at(ctx->topic_arena, subdata->topic_offset);
+            is_match              = (strncmp(publish_topic, sub_topic, topic_size) == 0);
+        }
+        break;
+
+    case TFT_WILDCARD_HASH: {
+        // '#' wildcard, we expect it to be a suffix last char
+        // e.g.
+        //
+        //   temperatures/#
+        //
+        // Should match:
+        //
+        //   temperatures/morning
+        //   temperatures/evening
+        //
+        // The simplest way to ensure it is to check that the prefix of the topics inclusive
+        // of  the '/'  match
+        const char *sub_topic = (const char *)arena_at(ctx->topic_arena, subdata->topic_offset);
+        if (subdata->topic_size == 1) {
+            is_match = true;
+        } else {
+            usize prefix_len = subdata->topic_size - 2;
+            if (topic_size >= prefix_len && strncmp(publish_topic, sub_topic, prefix_len) == 0) {
+                is_match = (topic_size == prefix_len ||
+                            (topic_size > prefix_len && publish_topic[prefix_len] == '/'));
+            }
+        }
+        break;
+    }
+    case TFT_WILDCARD_PLUS:
+        // '+' wildcard, this can be present in the middle of the filter
+        // e.g.
+        //
+        //   temperatures/+/celsius
+        //
+        // Should match:
+        //
+        //   temperatures/morning/celsius
+        //   temperatures/evening/celsius
+        //
+        // But not:
+        //
+        //   temperatures/morning/kelvin
+        //   temperatures/morning/farenheit
+        //
+        // In this case it's a little trickier as both prefix and suffix must match, with anything
+        // allowed in the middle
+        is_match = topic_matches(ctx, publish_topic, topic_size, subdata);
+        break;
+    }
+
+    return is_match;
+}
+
 void mqtt_publish_fanout_write(Tera_Context *ctx, const Client_Data *cdata,
                                Published_Message *pub_msg)
 {
@@ -386,13 +449,12 @@ void mqtt_publish_fanout_write(Tera_Context *ctx, const Client_Data *cdata,
         if (!ctx->subscription_data[i].active)
             continue;
 
-        Subscription_Data *subscription_data = &ctx->subscription_data[i];
-        if (!topic_matches(ctx, publish_topic, pub_msg->topic_size, subscription_data))
+        Subscription_Data *subdata = &ctx->subscription_data[i];
+        if(!topic_is_match(ctx, subdata, publish_topic, pub_msg->topic_size))
             continue;
 
         // Create delivery record for this subscription
-        Message_Delivery *delivery =
-            find_free_delivery_slot(ctx, subscription_data->client_id, pub_msg->id);
+        Message_Delivery *delivery = find_free_delivery_slot(ctx, subdata->client_id, pub_msg->id);
         if (!delivery)
             continue;
 
@@ -401,15 +463,15 @@ void mqtt_publish_fanout_write(Tera_Context *ctx, const Client_Data *cdata,
             continue;
 
         delivery->published_msg_id = pub_msg->id;
-        delivery->client_id        = subscription_data->client_id;
-        delivery->message_id       = mqtt_subscription_next_mid(subscription_data);
+        delivery->client_id        = subdata->client_id;
+        delivery->message_id       = mqtt_subscription_next_mid(subdata);
 
         /*
          * Update QoS according to subscriber's one, following MQTT
          * rules: The min between the original QoS and the subscriber
          * QoS
          */
-        uint8 granted_qos          = subscription_data->options & 0x03;
+        uint8 granted_qos          = subdata->options & 0x03;
         delivery->delivery_qos =
             message_flags.bits.qos >= granted_qos ? granted_qos : message_flags.bits.qos;
         delivery->state        = (delivery->delivery_qos == AT_MOST_ONCE)    ? MSG_ACKNOWLEDGED
@@ -423,7 +485,7 @@ void mqtt_publish_fanout_write(Tera_Context *ctx, const Client_Data *cdata,
 
         // Write to subscription buffer
 
-        buf                   = &ctx->connection_data[subscription_data->client_id].send_buffer;
+        buf                   = &ctx->connection_data[subdata->client_id].send_buffer;
         buffer_reset(buf);
 
         // Remaining Variable Length
@@ -442,7 +504,7 @@ void mqtt_publish_fanout_write(Tera_Context *ctx, const Client_Data *cdata,
         if (header.bits.qos > AT_MOST_ONCE)
             header.remaining_length += sizeof(uint16);
 
-        publish_properties_add_subscription(props, subscription_data->id);
+        publish_properties_add_subscription(props, subdata->id);
         uint32 properties_length = calculate_publish_properties_length(props);
         header.remaining_length += mqtt_variable_length_encoded_length(properties_length);
         header.remaining_length += properties_length;
@@ -470,8 +532,8 @@ void mqtt_publish_fanout_write(Tera_Context *ctx, const Client_Data *cdata,
                 written_bytes += buffer_write_binary(buf, payload, pub_msg->message_size);
 
             log_info("sent: PUBLISH id: %d cid: %d sid: %d qos: %d (%li bytes)",
-                     delivery->message_id, subscription_data->client_id, subscription_data->id,
-                     delivery->delivery_qos, written_bytes);
+                     delivery->message_id, subdata->client_id, subdata->id, delivery->delivery_qos,
+                     written_bytes);
         }
 
         written_bytes = 0;
