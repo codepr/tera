@@ -78,6 +78,17 @@ static Published_Message *find_free_published_message(Tera_Context *ctx)
     return published_msg;
 }
 
+static void free_subscriptions(Tera_Context *ctx, Client_Data *client)
+{
+    for (usize i = 0; i < MAX_SUBSCRIPTIONS; ++i) {
+        if (!ctx->subscription_data[i].active)
+            continue;
+
+        if (ctx->subscription_data[i].client_id == client->conn_id)
+            ctx->subscription_data[i].active = false;
+    }
+}
+
 /**
  * Once a published message have concluded its lifecycle, e.g.
  * - A PUBLISH message that must be acknowledged by the publisher
@@ -229,6 +240,8 @@ static Transport_Result process_client_messages(Tera_Context *ctx, int fd)
             break;
         case DISCONNECT:
             result = mqtt_disconnect_read(ctx, client);
+            if (result == MQTT_DECODE_SUCCESS)
+                free_subscriptions(ctx, client);
             return TRANSPORT_DISCONNECT;
         case SUBSCRIBE: {
             Subscribe_Result sub_result = {0};

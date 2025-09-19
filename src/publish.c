@@ -450,7 +450,7 @@ void mqtt_publish_fanout_write(Tera_Context *ctx, const Client_Data *cdata,
             continue;
 
         Subscription_Data *subdata = &ctx->subscription_data[i];
-        if(!topic_is_match(ctx, subdata, publish_topic, pub_msg->topic_size))
+        if (!topic_is_match(ctx, subdata, publish_topic, pub_msg->topic_size))
             continue;
 
         // Create delivery record for this subscription
