@@ -94,6 +94,10 @@ MQTT_Decode_Result mqtt_connect_read(Tera_Context *ctx, Client_Data *cdata)
     uint16 client_id_size = 0;
     if (buffer_read_struct(buf, "H", &client_id_size) != sizeof(uint16))
         return MQTT_DECODE_ERROR;
+
+    if (mqtt_clean_session_get(cdata->connect_flags) && client_id_size == 0)
+        return MQTT_AUTH_ERROR;
+
     cdata->client_id_size   = client_id_size;
     cdata->client_id_offset = memory_offset;
 

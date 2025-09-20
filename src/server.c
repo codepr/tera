@@ -173,8 +173,7 @@ static Transport_Result process_client_messages(Tera_Context *ctx, int fd)
     Client_Data *client    = &ctx->client_data[fd];
     Connection_Data *cdata = &ctx->connection_data[fd];
 
-    buffer_reset(&cdata->recv_buffer);
-    isize nread = buffer_net_recv(&cdata->recv_buffer, cdata->socket_fd);
+    isize nread            = buffer_net_recv(&cdata->recv_buffer, cdata->socket_fd);
     if (nread < 0) {
         // No data available right now
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -234,10 +233,21 @@ static Transport_Result process_client_messages(Tera_Context *ctx, int fd)
         switch (mqtt_type_get(header)) {
         case CONNECT:
             result = mqtt_connect_read(ctx, client);
-            if (result == MQTT_DECODE_SUCCESS)
+            switch (result) {
+            case MQTT_DECODE_SUCCESS:
                 mqtt_connack_write(ctx, client, CONNACK_SUCCESS);
-            else if (result == MQTT_DECODE_INVALID)
+                break;
+            case MQTT_AUTH_ERROR:
+                mqtt_connack_write(ctx, client, CONNACK_NOT_AUTHORIZED);
+                break;
+            case MQTT_DECODE_INCOMPLETE:
+                return TRANSPORT_INCOMPLETE_PACKET;
+            case MQTT_DECODE_INVALID:
                 return TRANSPORT_DISCONNECT;
+            default:
+                // TODO missing cases
+                break;
+            }
             break;
         case DISCONNECT:
             result = mqtt_disconnect_read(ctx, client);
@@ -249,6 +259,8 @@ static Transport_Result process_client_messages(Tera_Context *ctx, int fd)
             result                      = mqtt_subscribe_read(ctx, client, &sub_result);
             if (result == MQTT_DECODE_SUCCESS)
                 mqtt_suback_write(ctx, client, &sub_result);
+            else if (result == MQTT_DECODE_INCOMPLETE)
+                return TRANSPORT_INCOMPLETE_PACKET;
             break;
         }
         case UNSUBSCRIBE:
@@ -260,6 +272,8 @@ static Transport_Result process_client_messages(Tera_Context *ctx, int fd)
                 result = mqtt_publish_read(ctx, client, out);
                 if (result == MQTT_DECODE_SUCCESS)
                     mqtt_publish_fanout_write(ctx, client, out);
+                else if (result == MQTT_DECODE_INCOMPLETE)
+                    return TRANSPORT_INCOMPLETE_PACKET;
             }
             break;
         }
@@ -394,6 +408,10 @@ static int server_start(Tera_Context *ctx, int serverfd)
                 if (err == TRANSPORT_DISCONNECT) {
                     shutdown_connection(ctx, fd);
                     continue;
+                } else if (err == TRANSPORT_INCOMPLETE_PACKET) {
+                    continue;
+                } else {
+                    buffer_reset(&ctx->connection_data[clientfd].recv_buffer);
                 }
 
             } else if (ctx->connection_data[fd].socket_fd == fd) {
@@ -401,6 +419,10 @@ static int server_start(Tera_Context *ctx, int serverfd)
                 if (err == TRANSPORT_DISCONNECT) {
                     shutdown_connection(ctx, fd);
                     continue;
+                } else if (err == TRANSPORT_INCOMPLETE_PACKET) {
+                    continue;
+                } else {
+                    buffer_reset(&ctx->connection_data[fd].recv_buffer);
                 }
             }
         }

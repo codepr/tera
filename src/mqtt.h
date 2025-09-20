@@ -178,7 +178,8 @@ typedef enum {
     MQTT_DECODE_ERROR         = -1,
     MQTT_DECODE_INCOMPLETE    = -2,
     MQTT_DECODE_INVALID       = -3,
-    MQTT_DECODE_OUT_OF_BOUNDS = -4
+    MQTT_DECODE_OUT_OF_BOUNDS = -4,
+    MQTT_AUTH_ERROR           = -5
 } MQTT_Decode_Result;
 
 static inline usize mqtt_variable_length_encoded_length(usize value)
@@ -496,16 +497,20 @@ MQTT_Decode_Result mqtt_pingreq_read(Tera_Context *ctx, const Client_Data *cdata
 
 MQTT_Decode_Result mqtt_ack_read(Tera_Context *ctx, const Client_Data *cdata, int16 *mid);
 
+/**
+ * MQTT 5.0 CONNACK Reason Codes
+ * As defined in the MQTT 5.0 specification
+ */
 typedef enum {
-    CONNACK_SUCCESS                      = 0x00,
-    CONNACK_UNSPECIFIED_ERROR            = 0x80,
-    CONNACK_MALFORMED_PACKET             = 0x81,
-    CONNACK_PROTOCOL_ERROR               = 0x82,
-    CONNACK_UNSUPPORTED_PROTOCOL_VERSION = 0x84,
-    CONNACK_CLIENT_ID_NOT_VALID          = 0x85,
-    CONNACK_BAD_USERNAME_PASSWORD        = 0x86,
-    CONNACK_NOT_AUTHORIZED               = 0x87,
-    CONNACK_SERVER_UNAVAILABLE           = 0x88
+    CONNACK_SUCCESS                      = 0x00, // The Connection is accepted
+    CONNACK_UNSPECIFIED_ERROR            = 0x80, // The Server does not wish to reveal the reason
+    CONNACK_MALFORMED_PACKET             = 0x81, // CONNECT packet could not be correctly parsed
+    CONNACK_PROTOCOL_ERROR               = 0x82, // CONNECT packet does not conform to the protocol
+    CONNACK_UNSUPPORTED_PROTOCOL_VERSION = 0x84, // Protocol version is not supported (3.1.1 vs 5)
+    CONNACK_CLIENT_ID_NOT_VALID          = 0x85, // Client ID is a valid string but is not allowed
+    CONNACK_BAD_USERNAME_PASSWORD        = 0x86, // User Name or Password are not accepted
+    CONNACK_NOT_AUTHORIZED               = 0x87, // The Client is not authorized to connect
+    CONNACK_SERVER_UNAVAILABLE           = 0x88  // The MQTT Server is not available
 } CONNACK_Reason_Code;
 
 void mqtt_connack_write(Tera_Context *ctx, const Client_Data *cdata, CONNACK_Reason_Code rc);
