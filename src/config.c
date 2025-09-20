@@ -99,8 +99,8 @@ void config_set(const char *key, const char *value)
 
 void config_set_default(void)
 {
-    config_set("max_memory", "12");
-    config_set("max_socket", "24");
+    // TODO
+    config_set("log_verbosity", "debug");
 }
 
 const char *config_get(const char *key)
@@ -146,8 +146,20 @@ int config_get_list(const char *key, char out[MAX_LIST_SIZE][MAX_VALUE_SIZE])
 
 int config_get_enum(const char *key)
 {
-    (void)key;
-    return 0;
+    const char *value = config_get(key);
+    if (!value)
+        return -1;
+
+    if (strncasecmp(value, "debug", MAX_VALUE_SIZE) == 0)
+        return LL_DEBUG;
+    if (strncasecmp(value, "info", MAX_VALUE_SIZE) == 0)
+        return LL_INFO;
+    if (strncasecmp(value, "warning", MAX_VALUE_SIZE) == 0)
+        return LL_WARNING;
+    if (strncasecmp(value, "error", MAX_VALUE_SIZE) == 0)
+        return LL_ERROR;
+
+    return -1;
 }
 
 void config_print(void)
