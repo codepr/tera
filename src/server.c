@@ -43,9 +43,10 @@ static Tera_Context context = {0};
  * This function is pretty simple, just loop through all the existing
  * connected clients and ensure that the out buffer is flushed.
  */
-static void broadcast_replies(Tera_Context *ctx)
+static void process_clients_replies(Tera_Context *ctx)
 {
     Connection_Data *cd = NULL;
+    isize nsent         = 0;
     for (usize i = 0; i < MAX_CLIENTS; ++i) {
         cd = &ctx->connection_data[i];
         if (!cd->connected)
@@ -53,7 +54,19 @@ static void broadcast_replies(Tera_Context *ctx)
         if (buffer_is_empty(&cd->send_buffer))
             continue;
 
-        buffer_net_send(&cd->send_buffer, cd->socket_fd);
+        nsent = buffer_net_send(&cd->send_buffer, cd->socket_fd);
+        if (nsent < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+                continue;
+
+            cd->socket_fd = -1;
+            cd->connected = false;
+            close(cd->socket_fd);
+            log_info(">>>>: Client disconnected");
+        }
+
+        if (buffer_is_empty(&cd->send_buffer))
+            buffer_reset(&cd->send_buffer);
     }
 }
 
@@ -140,7 +153,7 @@ static void process_delivery_timeouts(Tera_Context *ctx, int64 current_time)
             }
         }
     }
-    broadcast_replies(ctx);
+    process_clients_replies(ctx);
 }
 
 /**
@@ -168,7 +181,7 @@ static void update_message_delivery(Tera_Context *ctx, uint16 client_id, int16 m
     }
 }
 
-static Transport_Result process_client_messages(Tera_Context *ctx, int fd)
+static Transport_Result process_client_packets(Tera_Context *ctx, int fd)
 {
     Client_Data *client    = &ctx->client_data[fd];
     Connection_Data *cdata = &ctx->connection_data[fd];
@@ -317,15 +330,7 @@ static Transport_Result process_client_messages(Tera_Context *ctx, int fd)
             buffer_skip(buf, buffer_available(buf));
             break;
         }
-
-        /*
-         * Write out to clients, after a full packet has been processed in.
-         * Just send out all bytes stored in the reply buffer of each connected client.
-         */
-        broadcast_replies(ctx);
     }
-
-    buffer_reset(&cdata->send_buffer);
 
     return TRANSPORT_SUCCESS;
 }
@@ -400,7 +405,7 @@ static int server_start(Tera_Context *ctx, int serverfd)
                 iomux_add(ctx->iomux, clientfd, IOMUX_READ);
                 add_connection(ctx, clientfd);
 
-                err = process_client_messages(ctx, clientfd);
+                err = process_client_packets(ctx, clientfd);
                 if (err == TRANSPORT_DISCONNECT) {
                     shutdown_connection(ctx, fd);
                     continue;
@@ -411,7 +416,7 @@ static int server_start(Tera_Context *ctx, int serverfd)
                 }
 
             } else if (ctx->connection_data[fd].socket_fd == fd) {
-                err = process_client_messages(ctx, fd);
+                err = process_client_packets(ctx, fd);
                 if (err == TRANSPORT_DISCONNECT) {
                     shutdown_connection(ctx, fd);
                     continue;
@@ -421,6 +426,12 @@ static int server_start(Tera_Context *ctx, int serverfd)
                     buffer_reset(&ctx->connection_data[fd].recv_buffer);
                 }
             }
+
+            /*
+             * Write out to clients, after a full packet has been processed in.
+             * Just send out all bytes stored in the reply buffer of each connected client.
+             */
+            process_clients_replies(ctx);
         }
 
         // Periodic check for deliveries, some clients may fail to acknowledge
