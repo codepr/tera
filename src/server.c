@@ -373,19 +373,15 @@ static int server_start(Tera_Context *ctx, int serverfd)
     time_t last_check      = 0;
     time_t resend_check_ms = MQTT_RETRANSMISSION_CHECK_MS;
 
-    IO_Mux *iomux         = iomux_create();
-    if (!iomux)
-        return -1;
-
-    iomux_add(iomux, serverfd, IOMUX_READ);
+    iomux_add(ctx->iomux, serverfd, IOMUX_READ);
 
     while (1) {
-        numevents = iomux_wait(iomux, resend_check_ms);
+        numevents = iomux_wait(ctx->iomux, resend_check_ms);
         if (numevents < 0)
             log_critical(">>>>: iomux error: %s", strerror(errno));
 
         for (int i = 0; i < numevents; ++i) {
-            int fd = iomux_get_event_fd(iomux, i);
+            int fd = iomux_get_event_fd(ctx->iomux, i);
 
             if (fd == serverfd) {
                 // New connection
@@ -401,7 +397,7 @@ static int server_start(Tera_Context *ctx, int serverfd)
                 }
 
                 log_info(">>>>: New client connected");
-                iomux_add(iomux, clientfd, IOMUX_READ);
+                iomux_add(ctx->iomux, clientfd, IOMUX_READ);
                 add_connection(ctx, clientfd);
 
                 err = process_client_messages(ctx, clientfd);
@@ -442,7 +438,7 @@ static int server_start(Tera_Context *ctx, int serverfd)
         }
     }
 
-    iomux_free(iomux);
+    iomux_free(ctx->iomux);
     close(serverfd);
 
     return 0;

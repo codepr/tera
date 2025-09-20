@@ -62,7 +62,7 @@ int iomux_get_event_fd(IO_Mux *mux, int index) { return mux->events[index].ident
 IO_Mux_Event iomux_get_event_flags(IO_Mux *mux, int index)
 {
     IO_Mux_Event mask = 0;
-    short filter       = mux->events[index].filter;
+    short filter      = mux->events[index].filter;
     if (filter == EVFILT_READ)
         mask |= IOMUX_READ;
     if (filter == EVFILT_WRITE)
@@ -153,7 +153,7 @@ int iomux_get_event_fd(IO_Mux *mux, int index)
 
 IO_Mux_Event iomux_get_event_flags(IO_Mux *mux, int index)
 {
-    int fd             = iomux_get_event_fd(mux, index);
+    int fd            = iomux_get_event_fd(mux, index);
     IO_Mux_Event mask = 0;
     if (FD_ISSET(fd, &mux->readfds))
         mask |= IOMUX_READ;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "buffer.h"
+#include "iomux.h"
 #include "mqtt.h"
 #include "types.h"
 
@@ -98,6 +99,9 @@ typedef struct connection_data {
  *                  hierarchies are not supported as of yet
  */
 typedef struct tera_context {
+    // I/O Event handler
+    IO_Mux *iomux;
+
     // Memory arenas, separated by entity
     Arena *io_arena;
     Arena *client_arena;
@@ -149,6 +153,9 @@ static inline uint8 data_flags_active_set(uint8 byte, uint8 value)
 
 static inline void tera_context_init(Tera_Context *ctx)
 {
+    // TODO move out of heap
+    ctx->iomux = iomux_create();
+
     arena_init(&client_arena, client_data_buffer, MAX_CLIENT_DATA_BUFFER_SIZE);
     arena_init(&message_arena, message_data_buffer, MAX_MESSAGE_DATA_BUFFER_SIZE);
     arena_init(&topic_arena, topic_data_buffer, MAX_TOPIC_DATA_BUFFER_SIZE);
