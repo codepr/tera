@@ -373,7 +373,7 @@ static int server_start(Tera_Context *ctx, int serverfd)
     time_t last_check      = 0;
     time_t resend_check_ms = MQTT_RETRANSMISSION_CHECK_MS;
 
-    iomux_t *iomux         = iomux_create();
+    IO_Mux *iomux         = iomux_create();
     if (!iomux)
         return -1;
 

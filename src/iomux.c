@@ -15,9 +15,9 @@ struct iomux {
     int nevents;
 };
 
-iomux_t *iomux_create(void)
+IO_Mux *iomux_create(void)
 {
-    iomux_t *mux = malloc(sizeof(iomux_t));
+    IO_Mux *mux = malloc(sizeof(IO_Mux));
     if (!mux)
         return NULL;
     mux->kq      = kqueue();
@@ -25,13 +25,13 @@ iomux_t *iomux_create(void)
     return mux->kq >= 0 ? mux : (free(mux), NULL);
 }
 
-void iomux_free(iomux_t *mux)
+void iomux_free(IO_Mux *mux)
 {
     close(mux->kq);
     free(mux);
 }
 
-int iomux_add(iomux_t *mux, int fd, iomux_event_t events)
+int iomux_add(IO_Mux *mux, int fd, IO_Mux_Event events)
 {
     short filter = 0;
     if (events & IOMUX_READ)
@@ -43,25 +43,25 @@ int iomux_add(iomux_t *mux, int fd, iomux_event_t events)
     return kevent(mux->kq, &ev, 1, NULL, 0, NULL);
 }
 
-int iomux_del(iomux_t *mux, int fd)
+int iomux_del(IO_Mux *mux, int fd)
 {
     struct kevent ev;
     EV_SET(&ev, fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
     return kevent(mux->kq, &ev, 1, NULL, 0, NULL);
 }
 
-int iomux_wait(iomux_t *mux, time_t timeout_ms)
+int iomux_wait(IO_Mux *mux, time_t timeout_ms)
 {
     struct timespec ts = {timeout_ms / 1000, (timeout_ms % 1000) * 1000000};
     mux->nevents = kevent(mux->kq, NULL, 0, mux->events, NUM_EVENTS, timeout_ms >= 0 ? &ts : NULL);
     return mux->nevents;
 }
 
-int iomux_get_event_fd(iomux_t *mux, int index) { return mux->events[index].ident; }
+int iomux_get_event_fd(IO_Mux *mux, int index) { return mux->events[index].ident; }
 
-iomux_event_t iomux_get_event_flags(iomux_t *mux, int index)
+IO_Mux_Event iomux_get_event_flags(IO_Mux *mux, int index)
 {
-    iomux_event_t mask = 0;
+    IO_Mux_Event mask = 0;
     short filter       = mux->events[index].filter;
     if (filter == EVFILT_READ)
         mask |= IOMUX_READ;
@@ -85,9 +85,9 @@ struct iomux {
     int nfds;
 };
 
-iomux_t *iomux_create(void)
+IO_Mux *iomux_create(void)
 {
-    iomux_t *mux = malloc(sizeof(iomux_t));
+    IO_Mux *mux = malloc(sizeof(IO_Mux));
     if (!mux)
         return NULL;
     FD_ZERO(&mux->readfds);
@@ -99,9 +99,9 @@ iomux_t *iomux_create(void)
     return mux;
 }
 
-void iomux_free(iomux_t *mux) { free(mux); }
+void iomux_free(IO_Mux *mux) { free(mux); }
 
-int iomux_add(iomux_t *mux, int fd, iomux_event_t events)
+int iomux_add(IO_Mux *mux, int fd, IO_Mux_Event events)
 {
     if (mux->nfds >= NUM_EVENTS)
         return -1;
@@ -115,7 +115,7 @@ int iomux_add(iomux_t *mux, int fd, iomux_event_t events)
     return 0;
 }
 
-int iomux_del(iomux_t *mux, int fd)
+int iomux_del(IO_Mux *mux, int fd)
 {
 
     if (FD_ISSET(fd, &mux->readfds))
@@ -132,7 +132,7 @@ int iomux_del(iomux_t *mux, int fd)
     return 0;
 }
 
-int iomux_wait(iomux_t *mux, time_t timeout_ms)
+int iomux_wait(IO_Mux *mux, time_t timeout_ms)
 {
     FD_ZERO(&mux->readfds);
     for (int i = 0; i < mux->nfds; ++i) {
@@ -146,15 +146,15 @@ int iomux_wait(iomux_t *mux, time_t timeout_ms)
     return select(mux->maxfd + 1, &rfds, &wfds, NULL, timeout_ms >= 0 ? &tv : NULL);
 }
 
-int iomux_get_event_fd(iomux_t *mux, int index)
+int iomux_get_event_fd(IO_Mux *mux, int index)
 {
     return mux->fds[index]; // Simplified handling
 }
 
-iomux_event_t iomux_get_event_flags(iomux_t *mux, int index)
+IO_Mux_Event iomux_get_event_flags(IO_Mux *mux, int index)
 {
     int fd             = iomux_get_event_fd(mux, index);
-    iomux_event_t mask = 0;
+    IO_Mux_Event mask = 0;
     if (FD_ISSET(fd, &mux->readfds))
         mask |= IOMUX_READ;
     if (FD_ISSET(fd, &mux->writefds))

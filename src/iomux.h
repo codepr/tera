@@ -1,18 +1,18 @@
 #pragma once
 #include <sys/types.h>
 
-typedef struct iomux iomux_t;
+typedef struct iomux IO_Mux;
 typedef enum iomux_event {
     IOMUX_READ  = 1 << 0, // 0x01
     IOMUX_WRITE = 1 << 1, // 0x02
-} iomux_event_t;
+} IO_Mux_Event;
 
-iomux_t *iomux_create(void);
-void iomux_free(iomux_t *mux);
+IO_Mux *iomux_create(void);
+void iomux_free(IO_Mux *mux);
 
-int iomux_add(iomux_t *mux, int fd, iomux_event_t events);
-int iomux_del(iomux_t *mux, int fd);
-int iomux_wait(iomux_t *mux, time_t timeout_ms);
+int iomux_add(IO_Mux *mux, int fd, IO_Mux_Event events);
+int iomux_del(IO_Mux *mux, int fd);
+int iomux_wait(IO_Mux *mux, time_t timeout_ms);
 
-int iomux_get_event_fd(iomux_t *mux, int index);
-iomux_event_t iomux_get_event_flags(iomux_t *mux, int index);
+int iomux_get_event_fd(IO_Mux *mux, int index);
+IO_Mux_Event iomux_get_event_flags(IO_Mux *mux, int index);
