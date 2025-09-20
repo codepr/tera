@@ -173,6 +173,9 @@ uint32 buffer_read_struct(Buffer *buffer, const char *fmt, ...)
 
         switch (*fmt) {
         case 'b': // 8-bit
+            if (buffer->read_pos + 1 > buffer->size)
+                goto read_end;
+
             b = va_arg(ap, int8 *);
             if (*buf <= 0x7f)
                 *b = *buf; // re-sign
@@ -182,48 +185,72 @@ uint32 buffer_read_struct(Buffer *buffer, const char *fmt, ...)
             break;
 
         case 'B': // 8-bit unsigned
+            if (buffer->read_pos + 1 > buffer->size)
+                goto read_end;
+
             B  = va_arg(ap, uint8 *);
             *B = *buf;
             buffer->read_pos++;
             break;
 
         case 'h': // 16-bit
+            if (buffer->read_pos + 2 > buffer->size)
+                goto read_end;
+
             h  = va_arg(ap, int16 *);
             *h = bin_read_i16(buf);
             buffer->read_pos += 2;
             break;
 
         case 'H': // 16-bit unsigned
+            if (buffer->read_pos + 2 > buffer->size)
+                goto read_end;
+
             H  = va_arg(ap, uint16 *);
             *H = bin_read_u16(buf);
             buffer->read_pos += 2;
             break;
 
         case 'i': // 32-bit
+            if (buffer->read_pos + 4 > buffer->size)
+                goto read_end;
+
             i  = va_arg(ap, int32 *);
             *i = bin_read_i32(buf);
             buffer->read_pos += 4;
             break;
 
         case 'I': // 32-bit unsigned
+            if (buffer->read_pos + 4 > buffer->size)
+                goto read_end;
+
             I  = va_arg(ap, uint32 *);
             *I = bin_read_u32(buf);
             buffer->read_pos += 4;
             break;
 
         case 'q': // 64-bit
+            if (buffer->read_pos + 8 > buffer->size)
+                goto read_end;
+
             q  = va_arg(ap, int64 *);
             *q = bin_read_i64(buf);
             buffer->read_pos += 8;
             break;
 
         case 'Q': // 64-bit unsigned
+            if (buffer->read_pos + 8 > buffer->size)
+                goto read_end;
+
             Q  = va_arg(ap, uint64 *);
             *Q = bin_read_u64(buf);
             buffer->read_pos += 8;
             break;
 
         case 's': // string
+            if (buffer->read_pos + maxstrlen > buffer->size)
+                goto read_end;
+
             s = va_arg(ap, char *);
             memcpy(s, buf, maxstrlen);
             s[maxstrlen] = '\0';
@@ -240,6 +267,8 @@ uint32 buffer_read_struct(Buffer *buffer, const char *fmt, ...)
     }
 
     va_end(ap);
+
+read_end:
 
     size = buffer->read_pos - size;
 
@@ -284,55 +313,82 @@ uint32 buffer_write_struct(Buffer *buffer, const char *fmt, ...)
     for (; *fmt != '\0'; fmt++) {
         uint8 *buf = buffer->data + buffer->write_pos;
         switch (*fmt) {
-        case 'b':                           // 8-bit
+        case 'b': // 8-bit
+            if (buffer->write_pos + 1 > buffer->size)
+                goto write_end;
+
             b    = (int8)va_arg(ap, int32); // promoted
             *buf = b;
             buffer->write_pos++;
             break;
 
-        case 'B':                             // 8-bit unsigned
+        case 'B': // 8-bit unsigned
+            if (buffer->write_pos + 1 > buffer->size)
+                goto write_end;
+
             B    = (uint8)va_arg(ap, uint32); // promoted
             *buf = B;
             buffer->write_pos++;
             break;
 
         case 'h': // 16-bit
+            if (buffer->write_pos + 2 > buffer->size)
+                goto write_end;
+
             h = va_arg(ap, int32);
             bin_write_i16(buf, h);
             buffer->write_pos += 2;
             break;
 
         case 'H': // 16-bit unsigned
+            if (buffer->write_pos + 2 > buffer->size)
+                goto write_end;
+
             H = va_arg(ap, uint32);
             bin_write_u16(buf, H);
             buffer->write_pos += 2;
             break;
 
         case 'i': // 32-bit
+            if (buffer->write_pos + 4 > buffer->size)
+                goto write_end;
+
             i = va_arg(ap, int32);
             bin_write_i32(buf, i);
             buffer->write_pos += 4;
             break;
 
         case 'I': // 32-bit unsigned
+            if (buffer->write_pos + 4 > buffer->size)
+                goto write_end;
+
             I = va_arg(ap, uint32);
             bin_write_i32(buf, I);
             buffer->write_pos += 4;
             break;
 
         case 'q': // 64-bit
+            if (buffer->write_pos + 8 > buffer->size)
+                goto write_end;
+
             q = va_arg(ap, int64);
             bin_write_i64(buf, q);
             buffer->write_pos += 8;
             break;
 
         case 'Q': // 64-bit unsigned
+            if (buffer->write_pos + 8 > buffer->size)
+                goto write_end;
+
             Q = va_arg(ap, uint64);
             bin_write_i64(buf, Q);
             buffer->write_pos += 8;
             break;
 
         case 's': // string
+            if (buffer->write_pos + maxstrlen > buffer->size)
+                goto write_end;
+
             s = va_arg(ap, char *);
             memcpy(buf, s, maxstrlen);
             buffer->write_pos += maxstrlen;
@@ -349,6 +405,7 @@ uint32 buffer_write_struct(Buffer *buffer, const char *fmt, ...)
 
     va_end(ap);
 
+write_end:
     size = buffer->write_pos - size;
 
     return size;
