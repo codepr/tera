@@ -31,13 +31,24 @@ TERA_SRC = src/timeutil.c       \
 TERA_OBJ = $(TERA_SRC:.c=.o)
 TERA_EXEC = tera
 
-all: $(TERA_EXEC)
+TEST_SRC = tests/tests.c                 \
+           tests/mqtt_tests.c            \
+		   src/mqtt.c                    \
+		   src/timeutil.c
+
+TEST_OBJ = $(TEST_SRC:.c=.o)
+TEST_EXEC = tera-tests
+
+all: $(TERA_EXEC) $(TEST_EXEC)
 
 $(TERA_EXEC): $(TERA_OBJ)
 	$(CC) $(CFLAGS) -o $@ $^
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
+
+$(TEST_EXEC): $(TEST_OBJ)
+	$(CC) $(CFLAGS) -o $@ $^
 
 clean:
 	rm -f $(TERA_OBJ) $(TERA_EXEC)

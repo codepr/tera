@@ -15,4 +15,5 @@
 *.dSYM/
 *.su
 tera
+tera-tests
 .clang-tidy

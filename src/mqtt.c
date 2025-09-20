@@ -7,17 +7,17 @@ static int mqtt_read_variable_byte_integer(Buffer *buf, uint32 *value)
     uint32_t multiplier = 1;
     int bytes_read      = 0;
 
-    *value              = 0; // Initialize output
+    *value              = 0;
 
     do {
         // Check buffer bounds
         if (buf->read_pos >= buf->size) {
-            return -1; // Buffer underrun
+            return -1;
         }
 
         // Check MQTT specification limit (max 4 bytes)
         if (bytes_read >= 4) {
-            return -1; // Malformed Variable Byte Integer
+            return -1;
         }
 
         byte = buf->data[buf->read_pos];
@@ -28,7 +28,7 @@ static int mqtt_read_variable_byte_integer(Buffer *buf, uint32 *value)
 
         // Check for overflow before next iteration
         if (multiplier > (UINT32_MAX / 128)) {
-            return -1; // Would overflow on next iteration
+            return -1;
         }
 
         multiplier *= 128;
@@ -61,7 +61,7 @@ static int mqtt_read_variable_byte_integer(Buffer *buf, uint32 *value)
  * - Maximum value is 268 435 455
  * - Uses the minimum amount of bytes necessary to represent
  */
-usize mqtt_variable_length_read(Buffer *buf, usize *len)
+isize mqtt_variable_length_read(Buffer *buf, usize *len)
 {
     uint32_t value;
     int result = mqtt_read_variable_byte_integer(buf, &value);
@@ -71,8 +71,8 @@ usize mqtt_variable_length_read(Buffer *buf, usize *len)
         return 0; // Error - could also return -1 to indicate error
     }
 
-    *len = (usize)value; // Safe since we validated range
-    return (usize)result;
+    *len = (usize)value;
+    return (isize)result;
 }
 
 /*
@@ -85,14 +85,19 @@ usize mqtt_variable_length_read(Buffer *buf, usize *len)
  * remaining length or not.
  * Returns the number of bytes used to store the value passed.
  */
-usize mqtt_variable_length_write(Buffer *buf, usize len)
+isize mqtt_variable_length_write(Buffer *buf, usize len)
 {
-    usize bytes    = 0;
+    isize bytes    = 0;
     uint16 encoded = 0;
 
     do {
         if ((buf->write_pos - buf->read_pos) + 1 > MAX_VARIABLE_LENGTH_BYTES)
             return bytes;
+
+        // Check buffer bounds
+        if (buf->write_pos >= buf->size) {
+            return -1;
+        }
 
         encoded = len % 128;
         len /= 128;

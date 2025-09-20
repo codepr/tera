@@ -202,7 +202,7 @@ static inline usize mqtt_variable_length_encoded_length(usize value)
  * - Maximum value is 268 435 455
  * - Uses the minimum amount of bytes necessary to represent
  */
-usize mqtt_variable_length_read(Buffer *buf, usize *len);
+isize mqtt_variable_length_read(Buffer *buf, usize *len);
 
 /*
  * Encoding packet length function, follows the OASIS specs, encode the total
@@ -214,7 +214,7 @@ usize mqtt_variable_length_read(Buffer *buf, usize *len);
  * remaining length or not.
  * Returns the number of bytes used to store the value passed.
  */
-usize mqtt_variable_length_write(Buffer *buf, usize len);
+isize mqtt_variable_length_write(Buffer *buf, usize len);
 
 /*
  * MQTT Fixed header, according to official docs it's comprised of a single
