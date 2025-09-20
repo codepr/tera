@@ -63,11 +63,13 @@ MQTT_Decode_Result mqtt_connect_read(Tera_Context *ctx, Client_Data *cdata)
     if (buffer_read_struct(buf, "B", &protocol_version) != sizeof(uint8))
         return MQTT_DECODE_ERROR;
 
-    if (protocol_version != 0x05) {
+    if (protocol_version != 0x05 && protocol_version != 0x04) {
         log_error("Unsupported MQTT version: %d", protocol_version);
         // TODO Should send CONNACK with 0x84 (Unsupported Protocol Version)
         return MQTT_DECODE_ERROR;
     }
+
+    cdata->mqtt_version = protocol_version;
 
     // Read variable header byte flags, followed by keepalive MSB and LSB
     // (2 bytes word) and the client ID length (2 bytes here again)
@@ -75,18 +77,20 @@ MQTT_Decode_Result mqtt_connect_read(Tera_Context *ctx, Client_Data *cdata)
         sizeof(uint8) + sizeof(uint16))
         return MQTT_DECODE_ERROR;
 
-    // 4. Properties Length + Properties
-    usize properties_length = 0;
-    int prop_length_bytes   = mqtt_variable_length_read(buf, &properties_length);
-    if (prop_length_bytes < 0)
-        return MQTT_DECODE_ERROR;
+    if (cdata->mqtt_version == MQTT_V5) {
+        // 4. Properties Length + Properties
+        usize properties_length = 0;
+        int prop_length_bytes   = mqtt_variable_length_read(buf, &properties_length);
+        if (prop_length_bytes < 0)
+            return MQTT_DECODE_ERROR;
 
-    // Skip Properties for now (should be parsed in full implementation)
-    if (buffer_skip(buf, properties_length) != properties_length)
-        return MQTT_DECODE_ERROR;
+        // Skip Properties for now (should be parsed in full implementation)
+        if (buffer_skip(buf, properties_length) != properties_length)
+            return MQTT_DECODE_ERROR;
+    }
 
-    log_info("recv: CONNECT (p%d c%d k%d)", protocol_version, cdata->connect_flags,
-             cdata->keepalive);
+    log_info("recv: CONNECT version: %d flags: %d keepalive: %d", protocol_version,
+             cdata->connect_flags, cdata->keepalive);
 
     // === PAYLOAD ===
 
@@ -111,15 +115,17 @@ MQTT_Decode_Result mqtt_connect_read(Tera_Context *ctx, Client_Data *cdata)
 
     // 2. Read the will topic and message if will is set
     if (mqtt_will_get(cdata->connect_flags)) {
-        usize will_properties_length = 0;
-        int will_prop_bytes          = mqtt_variable_length_read(buf, &will_properties_length);
-        if (will_prop_bytes < 0) {
-            return MQTT_DECODE_ERROR;
-        }
+        if (cdata->mqtt_version == MQTT_V5) {
+            usize will_properties_length = 0;
+            int will_prop_bytes          = mqtt_variable_length_read(buf, &will_properties_length);
+            if (will_prop_bytes < 0) {
+                return MQTT_DECODE_ERROR;
+            }
 
-        // Skip Will Properties
-        if (buffer_skip(buf, will_properties_length) != will_properties_length) {
-            return MQTT_DECODE_ERROR;
+            // Skip Will Properties
+            if (buffer_skip(buf, will_properties_length) != will_properties_length) {
+                return MQTT_DECODE_ERROR;
+            }
         }
 
         // Topic

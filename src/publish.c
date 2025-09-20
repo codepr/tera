@@ -165,7 +165,7 @@ MQTT_Decode_Result mqtt_publish_read(Tera_Context *ctx, const Client_Data *cdata
     if (header.remaining_length > MAX_PACKET_SIZE)
         return MQTT_DECODE_OUT_OF_BOUNDS;
 
-    // Valdiate we have enough data for the complete packet
+    // Validate we have enough data for the complete packet
     usize total_packet_size = sizeof(uint8) + header.remaining_length + fixed_header_len;
     if (start_pos + total_packet_size > buf->size) {
         log_debug("Incomplete packet - need %zu more bytes",
@@ -200,20 +200,23 @@ MQTT_Decode_Result mqtt_publish_read(Tera_Context *ctx, const Client_Data *cdata
         consumed += sizeof(uint16);
     }
 
-    usize properties_length = 0;
-    int prop_bytes          = mqtt_variable_length_read(buf, &properties_length);
-    if (prop_bytes < 0)
-        return MQTT_DECODE_ERROR;
-    consumed += prop_bytes;
+    if (cdata->mqtt_version == MQTT_V5) {
+        usize properties_length = 0;
+        int prop_bytes          = mqtt_variable_length_read(buf, &properties_length);
+        if (prop_bytes < 0)
+            return MQTT_DECODE_ERROR;
+        consumed += prop_bytes;
 
-    // Properties
-    usize property_id         = 0;
-    Publish_Properties *props = find_free_property_slot(ctx, &property_id);
-    if (mqtt_publish_properties_read(buf, props, properties_length) != MQTT_DECODE_SUCCESS)
-        return MQTT_DECODE_ERROR;
-    consumed += properties_length;
+        // Properties
+        usize property_id         = 0;
+        Publish_Properties *props = find_free_property_slot(ctx, &property_id);
+        if (mqtt_publish_properties_read(buf, props, properties_length) != MQTT_DECODE_SUCCESS)
+            return MQTT_DECODE_ERROR;
 
-    message->property_id    = property_id;
+        consumed += properties_length;
+        message->property_id = property_id;
+    }
+
     message->message_offset = arena_current_offset(ctx->message_arena);
     message->message_size   = header.remaining_length - consumed;
 
@@ -519,9 +522,13 @@ void mqtt_publish_fanout_write(Tera_Context *ctx, const Client_Data *cdata,
             header.remaining_length += sizeof(uint16);
 
         publish_properties_add_subscription(props, subdata->id);
-        uint32 properties_length = calculate_publish_properties_length(props);
-        header.remaining_length += mqtt_variable_length_encoded_length(properties_length);
-        header.remaining_length += properties_length;
+        uint32 properties_length = 0;
+
+        if (cdata->mqtt_version == MQTT_V5) {
+            properties_length = calculate_publish_properties_length(props);
+            header.remaining_length += mqtt_variable_length_encoded_length(properties_length);
+            header.remaining_length += properties_length;
+        }
 
         isize fixed_header_len = mqtt_fixed_header_write(buf, &header);
         if (fixed_header_len < 0) {
@@ -538,8 +545,10 @@ void mqtt_publish_fanout_write(Tera_Context *ctx, const Client_Data *cdata,
             }
 
             // Properties
-            written_bytes += mqtt_variable_length_write(buf, properties_length);
-            written_bytes += mqtt_publish_properties_write(buf, props);
+            if (cdata->mqtt_version == MQTT_V5) {
+                written_bytes += mqtt_variable_length_write(buf, properties_length);
+                written_bytes += mqtt_publish_properties_write(buf, props);
+            }
 
             // Payload
             if (pub_msg->message_size > 0)
@@ -606,6 +615,7 @@ void mqtt_publish_retry(Tera_Context *ctx, Message_Delivery *delivery)
     Publish_Properties *props  = &ctx->properties_data[pub_msg->property_id];
     const uint8 *payload       = arena_at(ctx->message_arena, pub_msg->message_offset);
     const char *publish_topic  = (const char *)arena_at(ctx->message_arena, pub_msg->topic_offset);
+    Client_Data *cdata         = &ctx->client_data[delivery->client_id];
     isize written_bytes        = 0;
     buffer_reset(buf);
 
@@ -625,9 +635,13 @@ void mqtt_publish_retry(Tera_Context *ctx, Message_Delivery *delivery)
     if (header.bits.qos > AT_MOST_ONCE)
         header.remaining_length += sizeof(uint16);
 
-    uint32 properties_length = calculate_publish_properties_length(props);
-    header.remaining_length += mqtt_variable_length_encoded_length(properties_length);
-    header.remaining_length += properties_length;
+    uint32 properties_length = 0;
+
+    if (cdata->mqtt_version == MQTT_V5) {
+        properties_length = calculate_publish_properties_length(props);
+        header.remaining_length += mqtt_variable_length_encoded_length(properties_length);
+        header.remaining_length += properties_length;
+    }
 
     isize fixed_header_len = mqtt_fixed_header_write(buf, &header);
     if (fixed_header_len < 0) {
@@ -642,9 +656,11 @@ void mqtt_publish_retry(Tera_Context *ctx, Message_Delivery *delivery)
         if (header.bits.qos > AT_MOST_ONCE)
             written_bytes += buffer_write_struct(buf, "H", delivery->message_id);
 
-        // Properties
-        written_bytes += mqtt_variable_length_write(buf, properties_length);
-        written_bytes += mqtt_publish_properties_write(buf, props);
+        if (cdata->mqtt_version == MQTT_V5) {
+            // Properties
+            written_bytes += mqtt_variable_length_write(buf, properties_length);
+            written_bytes += mqtt_publish_properties_write(buf, props);
+        }
 
         // Payload
         if (pub_msg->message_size > 0)

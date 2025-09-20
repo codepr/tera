@@ -92,27 +92,30 @@ MQTT_Decode_Result mqtt_subscribe_read(Tera_Context *ctx, const Client_Data *cda
         return MQTT_DECODE_ERROR;
     packet_length -= sizeof(uint16);
 
-    usize properties_length = 0;
-    int prop_length_bytes   = mqtt_variable_length_read(buf, &properties_length);
-    if (prop_length_bytes < 0)
-        return MQTT_DECODE_ERROR;
-
-    packet_length -= prop_length_bytes;
-
     usize sub_id = 0;
-    if (properties_length > 0) {
 
-        // Skip Properties for now (should be parsed in full implementation)
-        if (buffer_skip(buf, sizeof(uint8)) != sizeof(uint8))
+    if (cdata->mqtt_version == MQTT_V5) {
+        usize properties_length = 0;
+        int prop_length_bytes   = mqtt_variable_length_read(buf, &properties_length);
+        if (prop_length_bytes < 0)
             return MQTT_DECODE_ERROR;
 
-        usize sub_id_length = mqtt_variable_length_read(buf, &sub_id);
+        packet_length -= prop_length_bytes;
 
-        if (buffer_skip(buf, properties_length - sizeof(uint8) - sub_id_length) !=
-            properties_length - sizeof(uint8) - sub_id_length)
-            return MQTT_DECODE_ERROR;
+        if (properties_length > 0) {
 
-        packet_length -= properties_length;
+            // Skip Properties for now (should be parsed in full implementation)
+            if (buffer_skip(buf, sizeof(uint8)) != sizeof(uint8))
+                return MQTT_DECODE_ERROR;
+
+            usize sub_id_length = mqtt_variable_length_read(buf, &sub_id);
+
+            if (buffer_skip(buf, properties_length - sizeof(uint8) - sub_id_length) !=
+                properties_length - sizeof(uint8) - sub_id_length)
+                return MQTT_DECODE_ERROR;
+
+            packet_length -= properties_length;
+        }
     }
 
     /*

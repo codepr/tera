@@ -54,6 +54,7 @@ typedef struct client_data {
     uint8 password_size;
     uint8 will_topic_size;
     uint8 will_message_size;
+    MQTT_Version mqtt_version;
 } Client_Data;
 
 /*

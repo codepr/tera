@@ -7,6 +7,8 @@
 
 #define MAX_VARIABLE_LENGTH_BYTES 4
 
+typedef enum mqtt_version { MQTT_V311 = 0x04, MQTT_V5 = 0x05 } MQTT_Version;
+
 /* Message types */
 typedef enum packet_type {
     CONNECT     = 1,
