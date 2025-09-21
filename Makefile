@@ -19,7 +19,9 @@ TERA_SRC = src/timeutil.c       \
            src/connack.c        \
            src/publish.c        \
            src/subscribe.c      \
+		   src/unsubscribe.c    \
            src/suback.c         \
+           src/unsuback.c       \
            src/ack.c            \
            src/pingreq.c        \
            src/pingresp.c       \

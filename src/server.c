@@ -280,7 +280,10 @@ static Transport_Result process_client_packets(Tera_Context *ctx, int fd)
             break;
         }
         case UNSUBSCRIBE:
-            // TODO
+            Subscribe_Result unsub_result = {0};
+            result                        = mqtt_unsubscribe_read(ctx, client, &unsub_result);
+            if (result == MQTT_DECODE_SUCCESS)
+                mqtt_unsuback_write(ctx, client, &unsub_result);
             break;
         case PUBLISH: {
             Published_Message *out = find_free_published_message(ctx);

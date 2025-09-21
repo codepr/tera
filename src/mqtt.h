@@ -493,7 +493,8 @@ typedef struct {
 MQTT_Decode_Result mqtt_subscribe_read(Tera_Context *ctx, const Client_Data *cdata,
                                        Subscribe_Result *r);
 
-MQTT_Decode_Result mqtt_unsubscribe_read(Tera_Context *ctx, const Client_Data *cdata, Arena *arena);
+MQTT_Decode_Result mqtt_unsubscribe_read(Tera_Context *ctx, const Client_Data *cdata,
+                                         Subscribe_Result *r);
 
 MQTT_Decode_Result mqtt_pingreq_read(Tera_Context *ctx, const Client_Data *cdata);
 
@@ -527,6 +528,8 @@ typedef enum {
 } SUBACK_Reason_Code;
 
 void mqtt_suback_write(Tera_Context *ctx, const Client_Data *cdata, const Subscribe_Result *r);
+
+void mqtt_unsuback_write(Tera_Context *ctx, const Client_Data *cdata, const Subscribe_Result *r);
 
 /**
  * Write in serialized binary format the PUBLISH packet to be sent to all the

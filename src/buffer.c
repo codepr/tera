@@ -413,16 +413,23 @@ write_end:
 
 uint32 buffer_read_binary(void *dst, Buffer *buf, uint32 len)
 {
-    char fmt[8] = {0};
-    snprintf(fmt, 8, "%us", len);
-    return buffer_read_struct(buf, fmt, dst);
+    if (buf->read_pos + len > buf->size)
+        return 0;
+
+    memcpy(dst, buf->data + buf->read_pos, len);
+    buf->read_pos += len;
+
+    return len;
 }
 
 uint32 buffer_write_binary(Buffer *buf, const void *src, uint32 len)
 {
-    char fmt[8] = {0};
-    snprintf(fmt, 8, "%us", len);
-    return buffer_write_struct(buf, fmt, src);
+    if (buf->write_pos + len > buf->size)
+        return 0;
+
+    memcpy(buf->data + buf->write_pos, src, len);
+    buf->write_pos += len;
+    return len;
 }
 
 uint32 buffer_write_utf8_string(Buffer *buf, const void *src, uint32 len)
