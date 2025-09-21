@@ -104,7 +104,7 @@ isize buffer_net_recv(Buffer *buffer, int fd)
     }
 
     if (bytes_read == 0)
-        return 1; // EOF, but not an error
+        return 0; // EOF, but not an error
 
     buffer->write_pos += bytes_read;
 

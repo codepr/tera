@@ -209,6 +209,9 @@ static Transport_Result process_client_packets(Tera_Context *ctx, int fd)
         return TRANSPORT_DISCONNECT;
     }
 
+    if (nread == 0)
+        return TRANSPORT_DISCONNECT;
+
     Buffer *buf = &cdata->recv_buffer;
 
     while (!buffer_is_empty(buf)) {

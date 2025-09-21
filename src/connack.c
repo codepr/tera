@@ -34,8 +34,11 @@ void mqtt_connack_write(Tera_Context *ctx, const Client_Data *cdata, CONNACK_Rea
     // Fixed Header
     isize bytes_written    = buffer_write_struct(buf, "B", DEFAULT_CONNACK_BYTE);
 
-    // Remaining length = flags + rc + properties
-    uint8 remaining_length = sizeof(uint8) * 3;
+    // Remaining length = flags + rc
+    uint8 remaining_length = sizeof(uint8) * 2;
+    if (cdata->mqtt_version == MQTT_V5)
+        // + properties if MQTT v5
+        remaining_length += sizeof(uint8) + properties_length;
 
     bytes_written += mqtt_variable_length_write(buf, remaining_length);
     bytes_written +=

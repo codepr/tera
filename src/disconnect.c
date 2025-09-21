@@ -36,15 +36,17 @@ MQTT_Decode_Result mqtt_disconnect_read(Tera_Context *ctx, const Client_Data *cd
     if (buffer_read_struct(buf, "B", &reason_code) != sizeof(uint8))
         return MQTT_DECODE_ERROR;
 
-    usize properties_length = 0;
-    int prop_length_bytes   = mqtt_variable_length_read(buf, &properties_length);
-    if (prop_length_bytes < 0)
-        return MQTT_DECODE_ERROR;
+    if (cdata->mqtt_version == MQTT_V5) {
+        usize properties_length = 0;
+        int prop_length_bytes   = mqtt_variable_length_read(buf, &properties_length);
+        if (prop_length_bytes < 0)
+            return MQTT_DECODE_ERROR;
 
-    // TODO Skip expiry
-    if (buffer_skip(buf, 5) != 5)
-        log_debug("Expiry incomplete - need %zu more bytes",
-                  (start_pos + total_packet_size) - buf->size);
+        // TODO Skip expiry
+        if (buffer_skip(buf, 5) != 5)
+            log_debug("Expiry incomplete - need %zu more bytes",
+                      (start_pos + total_packet_size) - buf->size);
+    }
 
     log_info("recv: DISCONNECT rc: %d", reason_code);
     return MQTT_DECODE_SUCCESS;

@@ -39,10 +39,22 @@ TEST_SRC = tests/tests.c                 \
 TEST_OBJ = $(TEST_SRC:.c=.o)
 TEST_EXEC = tera-tests
 
+# Release Build Variables
+CFLAGS_RELEASE = -Wall -pedantic -std=c2x -O2
+TERA_EXEC_RELEASE = tera-release
+
 all: $(TERA_EXEC) $(TEST_EXEC)
+
+release: $(TERA_EXEC_RELEASE)
 
 $(TERA_EXEC): $(TERA_OBJ)
 	$(CC) $(CFLAGS) -o $@ $^
+
+$(TERA_EXEC_RELEASE): $(TERA_SRC:.c=.o.release)
+	$(CC) $(CFLAGS_RELEASE) -o $@ $^
+
+%.o.release: %.c
+	$(CC) $(CFLAGS_RELEASE) -c $< -o $@
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -51,7 +63,8 @@ $(TEST_EXEC): $(TEST_OBJ)
 	$(CC) $(CFLAGS) -o $@ $^
 
 clean:
-	rm -f $(TERA_OBJ) $(TERA_EXEC)
+	rm -f $(TERA_OBJ) $(TERA_EXEC) $(TERA_EXEC_RELEASE) $(TERA_SRC:.c=.o.release)
+	rm -f $(TEST_OBJ) $(TEST_EXEC)
 
 .PHONY: all clean
 
