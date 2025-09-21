@@ -114,6 +114,9 @@ static inline uint8 mqtt_type_set(uint8 byte, uint8 value)
     return ((byte) & ~0xF0) | (((value) & 0x0F) << 4);
 }
 
+typedef struct client_data Client_Data;
+typedef struct tera_context Tera_Context;
+
 typedef enum topic_filter_type {
     TFT_WILDCARD_NONE,
     TFT_WILDCARD_PLUS,
@@ -155,6 +158,7 @@ typedef struct message_delivery {
     uint16 client_id;         // Target client (subscriber)
     uint16 published_msg_id;  // Points to a Published_Message
     uint16 message_id;        // MQTT packet ID for client
+    uint16 published_index;   // Published_Message index in memory
     uint8 retry_count;        // Number of retries attempted
     Delivery_State state : 4; // Current delivery state
     uint8 delivery_qos : 2;   // Negotiated QoS (min between publisher/subscriber)
@@ -169,11 +173,29 @@ typedef struct published_message {
     uint16 topic_offset;
     uint16 message_size;
     uint16 message_offset;
+    uint16 deliveries; // How many acrtive deliveries
+    int16 next_free;   // Next free published message pointer
     uint8 options;
 } Published_Message;
 
-typedef struct client_data Client_Data;
-typedef struct tera_context Tera_Context;
+/**
+ * When a PUBLISH message is received, we first need to find a metadata
+ * slot in the published messages table, then we can proceed at decoding
+ * it from the raw binary payload.
+ */
+Published_Message *mqtt_published_message_find_free(Tera_Context *ctx, uint16 *published_id);
+
+/**
+ * Once a published message have concluded its lifecycle, e.g.
+ * - A PUBLISH message that must be acknowledged by the publisher
+ * - A PUBLISH message that must be akcnowledged by 1 or more subscribers,
+ *   depending on the QoS level
+ *
+ * It's memory slot for metadata will be free to be re-used by another
+ * incoming message. This function sets the message slot as free using
+ * the message ID to find the position in the array.
+ */
+void mqtt_published_message_free(Tera_Context *ctx, usize published_id);
 
 typedef enum {
     MQTT_DECODE_SUCCESS       = 0,
@@ -435,8 +457,13 @@ typedef struct publish_properties {
     uint32 subscription_ids[MAX_SUBSCRIPTION_IDS];
     uint8 subscription_id_count;
 
+    int16 next_free;
+
     // TODO User Properties (multiple allowed)
 } Publish_Properties;
+
+Publish_Properties *mqtt_publish_properties_find_free(Tera_Context *ctx, usize *property_id);
+void mqtt_publish_properties_free(Tera_Context *ctx, usize property_id);
 
 /*
  * MQTT Publish packet unpack function, as described in the MQTT v3.1.1 specs
@@ -539,7 +566,7 @@ void mqtt_unsuback_write(Tera_Context *ctx, const Client_Data *cdata, const Subs
  * to be properly filled in with the metadata of the incoming PUBLISH.
  */
 void mqtt_publish_fanout_write(Tera_Context *ctx, const Client_Data *cdata,
-                               Published_Message *pub_msg);
+                               Published_Message *pub_msg, uint16 index);
 
 /**
  * This function is meant to be used when a retry is attempted, so it assumes

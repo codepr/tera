@@ -70,29 +70,7 @@ static void process_clients_replies(Tera_Context *ctx)
     }
 }
 
-/**
- * When a PUBLISH message is received, we first need to find a metadata
- * slot in the published messages table, then we can proceed at decoding
- * it from the raw binary payload.
- */
-static Published_Message *find_free_published_message(Tera_Context *ctx)
-{
-    Published_Message *published_msg = NULL;
-    for (usize i = 0; i < MAX_PUBLISHED_MESSAGES; ++i) {
-        published_msg = &ctx->published_messages[i];
-        if (data_flags_active_get(published_msg->options))
-            continue;
-
-        Data_Flags flags       = data_flags_set(false, 0, false, true);
-        published_msg->options = flags.value;
-
-        break;
-    }
-
-    return published_msg;
-}
-
-static void free_subscriptions(Tera_Context *ctx, Client_Data *client)
+static void free_client_subscriptions(Tera_Context *ctx, Client_Data *client)
 {
     for (usize i = 0; i < MAX_SUBSCRIPTIONS; ++i) {
         if (!ctx->subscription_data[i].active)
@@ -100,31 +78,6 @@ static void free_subscriptions(Tera_Context *ctx, Client_Data *client)
 
         if (ctx->subscription_data[i].client_id == client->conn_id)
             ctx->subscription_data[i].active = false;
-    }
-}
-
-/**
- * Once a published message have concluded its lifecycle, e.g.
- * - A PUBLISH message that must be acknowledged by the publisher
- * - A PUBLISH message that must be akcnowledged by 1 or more subscribers,
- *   depending on the QoS level
- *
- * It's memory slot for metadata will be free to be re-used by another
- * incoming message. This function sets the message slot as free using
- * the message ID to find the position in the array.
- */
-static void free_published_message(Tera_Context *ctx, int16 mid)
-{
-    // TODO can use a more efficient way then linear scan
-    for (usize i = 0; i < MAX_PUBLISHED_MESSAGES; ++i) {
-        if (!data_flags_active_get(ctx->published_messages[i].options))
-            continue;
-
-        if (ctx->published_messages[i].id == mid) {
-            ctx->published_messages[i].options =
-                data_flags_active_set(ctx->published_messages[i].options, 0);
-            ctx->properties_data[ctx->published_messages[i].property_id].active = false;
-        }
     }
 }
 
@@ -144,7 +97,7 @@ static void process_delivery_timeouts(Tera_Context *ctx, int64 current_time)
             if (delivery->retry_count >= MQTT_MAX_RETRY_ATTEMPTS) {
                 delivery->state  = MSG_EXPIRED;
                 delivery->active = false;
-                free_published_message(ctx, delivery->published_msg_id);
+                mqtt_published_message_free(ctx, delivery->published_index);
             } else {
                 delivery->retry_count++;
                 delivery->last_sent_at  = current_time;
@@ -174,7 +127,7 @@ static void update_message_delivery(Tera_Context *ctx, uint16 client_id, int16 m
 
             if (new_state == MSG_ACKNOWLEDGED) {
                 delivery->active = false;
-                free_published_message(ctx, delivery->published_msg_id);
+                mqtt_published_message_free(ctx, delivery->published_index);
             }
             break;
         }
@@ -268,7 +221,7 @@ static Transport_Result process_client_packets(Tera_Context *ctx, int fd)
         case DISCONNECT:
             result = mqtt_disconnect_read(ctx, client);
             if (result == MQTT_DECODE_SUCCESS)
-                free_subscriptions(ctx, client);
+                free_client_subscriptions(ctx, client);
             return TRANSPORT_DISCONNECT;
         case SUBSCRIBE: {
             Subscribe_Result sub_result = {0};
@@ -286,11 +239,12 @@ static Transport_Result process_client_packets(Tera_Context *ctx, int fd)
                 mqtt_unsuback_write(ctx, client, &unsub_result);
             break;
         case PUBLISH: {
-            Published_Message *out = find_free_published_message(ctx);
+            uint16 index           = 0;
+            Published_Message *out = mqtt_published_message_find_free(ctx, &index);
             if (out) {
                 result = mqtt_publish_read(ctx, client, out);
                 if (result == MQTT_DECODE_SUCCESS)
-                    mqtt_publish_fanout_write(ctx, client, out);
+                    mqtt_publish_fanout_write(ctx, client, out, index);
                 else if (result == MQTT_DECODE_INCOMPLETE)
                     return TRANSPORT_INCOMPLETE_PACKET;
             }

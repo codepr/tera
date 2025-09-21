@@ -42,7 +42,7 @@ TEST_OBJ = $(TEST_SRC:.c=.o)
 TEST_EXEC = tera-tests
 
 # Release Build Variables
-CFLAGS_RELEASE = -Wall -pedantic -std=c2x -O2
+CFLAGS_RELEASE = -Wall -pedantic -std=c2x -O3
 TERA_EXEC_RELEASE = tera-release
 
 all: $(TERA_EXEC) $(TEST_EXEC)

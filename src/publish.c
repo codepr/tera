@@ -3,28 +3,14 @@
 #include "tera_internal.h"
 #include <string.h>
 
-static Publish_Properties *find_free_property_slot(Tera_Context *ctx, usize *property_id)
-{
-    // TODO make this useful (id recycling etc etc)
-    for (usize i = 0; i < MAX_PUBLISHED_MESSAGES; ++i) {
-        if (ctx->properties_data[i].active)
-            continue;
-
-        ctx->properties_data[i].active = true;
-        *property_id                   = i;
-        return &ctx->properties_data[i];
-    }
-
-    return NULL;
-}
-
 static Message_Delivery *find_free_delivery_slot(Tera_Context *ctx, int16 client_id, uint16 mid)
 {
     Message_Delivery *delivery = NULL;
     for (usize i = 0; i < MAX_DELIVERY_MESSAGES; ++i) {
         delivery = &ctx->message_deliveries[i];
 
-        if (delivery->active && delivery->client_id == client_id && delivery->published_msg_id)
+        if (delivery->active && delivery->client_id == client_id &&
+            delivery->published_msg_id == mid)
             return delivery;
 
         if (delivery->active)
@@ -209,7 +195,7 @@ MQTT_Decode_Result mqtt_publish_read(Tera_Context *ctx, const Client_Data *cdata
 
         // Properties
         usize property_id         = 0;
-        Publish_Properties *props = find_free_property_slot(ctx, &property_id);
+        Publish_Properties *props = mqtt_publish_properties_find_free(ctx, &property_id);
         if (mqtt_publish_properties_read(buf, props, properties_length) != MQTT_DECODE_SUCCESS)
             return MQTT_DECODE_ERROR;
 
@@ -452,14 +438,27 @@ static bool topic_is_match(const Tera_Context *ctx, const Subscription_Data *sub
 }
 
 void mqtt_publish_fanout_write(Tera_Context *ctx, const Client_Data *cdata,
-                               Published_Message *pub_msg)
+                               Published_Message *pub_msg, uint16 index)
 {
-    const char *publish_topic = (const char *)arena_at(ctx->message_arena, pub_msg->topic_offset);
-    isize written_bytes       = 0;
-    Publish_Properties *props = &ctx->properties_data[pub_msg->property_id];
-    const uint8 *payload      = arena_at(ctx->message_arena, pub_msg->message_offset);
-    Buffer *buf               = NULL;
-    Data_Flags message_flags  = data_flags_get(pub_msg->options);
+    const char *publish_topic  = (const char *)arena_at(ctx->message_arena, pub_msg->topic_offset);
+    isize written_bytes        = 0;
+    Publish_Properties *props  = &ctx->properties_data[pub_msg->property_id];
+    const uint8 *payload       = arena_at(ctx->message_arena, pub_msg->message_offset);
+    Buffer *buf                = NULL;
+    Data_Flags message_flags   = data_flags_get(pub_msg->options);
+    uint32 current_time_millis = current_millis_relative();
+
+    // Remaining Variable Length
+    // - len of topic uint16
+    // - packet id uint16
+    // - properties length
+    // - topic size in bytes
+    // - message size in bytes
+    Fixed_Header header        = {.bits.dup    = 0,
+                                  .bits.retain = 0,
+                                  .bits.type   = PUBLISH,
+                                  .remaining_length =
+                                      sizeof(uint16) + pub_msg->topic_size + pub_msg->message_size};
 
     for (usize i = 0; i < MAX_SUBSCRIPTIONS; ++i) {
         if (!ctx->subscription_data[i].active)
@@ -481,6 +480,7 @@ void mqtt_publish_fanout_write(Tera_Context *ctx, const Client_Data *cdata,
         delivery->published_msg_id = pub_msg->id;
         delivery->client_id        = subdata->client_id;
         delivery->message_id       = mqtt_subscription_next_mid(subdata);
+        delivery->published_index  = index;
 
         /*
          * Update QoS according to subscriber's one, following MQTT
@@ -493,33 +493,21 @@ void mqtt_publish_fanout_write(Tera_Context *ctx, const Client_Data *cdata,
         delivery->state         = (delivery->delivery_qos == AT_MOST_ONCE)    ? MSG_ACKNOWLEDGED
                                   : (delivery->delivery_qos == AT_LEAST_ONCE) ? MSG_AWAITING_PUBACK
                                                                               : MSG_AWAITING_PUBREC;
-        delivery->last_sent_at  = current_millis_relative();
+        delivery->last_sent_at  = current_time_millis;
         delivery->next_retry_at = (delivery->delivery_qos > AT_MOST_ONCE)
                                       ? delivery->last_sent_at + MQTT_RETRY_TIMEOUT_MS
                                       : 0;
         delivery->retry_count   = 0;
         delivery->active        = (delivery->delivery_qos != AT_MOST_ONCE);
 
-        // Write to subscription buffer
-
-        buf                     = &ctx->connection_data[subdata->client_id].send_buffer;
-        buffer_reset(buf);
-
-        // Remaining Variable Length
-        // - len of topic uint16
-        // - packet id uint16
-        // - properties length
-        // - topic size in bytes
-        // - message size in bytes
-        Fixed_Header header = {.bits.qos    = delivery->delivery_qos,
-                               .bits.dup    = 0,
-                               .bits.retain = 0,
-                               .bits.type   = PUBLISH,
-                               .remaining_length =
-                                   sizeof(uint16) + pub_msg->topic_size + pub_msg->message_size};
-
+        header.bits.qos         = delivery->delivery_qos;
         if (header.bits.qos > AT_MOST_ONCE)
             header.remaining_length += sizeof(uint16);
+
+        // Write to subscription buffer
+
+        buf = &ctx->connection_data[subdata->client_id].send_buffer;
+        buffer_reset(buf);
 
         publish_properties_add_subscription(props, subdata->id);
         uint32 properties_length = 0;
@@ -554,6 +542,8 @@ void mqtt_publish_fanout_write(Tera_Context *ctx, const Client_Data *cdata,
             if (pub_msg->message_size > 0)
                 written_bytes += buffer_write_binary(buf, payload, pub_msg->message_size);
 
+            pub_msg->deliveries++;
+
             log_info("sent: PUBLISH id: %d cid: %d sid: %d qos: %d (%li bytes)",
                      delivery->message_id, subdata->client_id, subdata->id, delivery->delivery_qos,
                      written_bytes);
@@ -573,6 +563,7 @@ void mqtt_publish_fanout_write(Tera_Context *ctx, const Client_Data *cdata,
         if (delivery->active)
             break;
 
+        pub_msg->deliveries++;
         mqtt_ack_write(ctx, cdata, PUBACK, pub_msg->id);
         pub_msg->options = data_flags_active_set(pub_msg->options, 0);
         break;
@@ -582,6 +573,7 @@ void mqtt_publish_fanout_write(Tera_Context *ctx, const Client_Data *cdata,
         if (delivery->active)
             break;
 
+        pub_msg->deliveries++;
         mqtt_ack_write(ctx, cdata, PUBREC, pub_msg->id);
 
         delivery->published_msg_id = pub_msg->id;
@@ -599,6 +591,7 @@ void mqtt_publish_fanout_write(Tera_Context *ctx, const Client_Data *cdata,
         delivery->next_retry_at    = delivery->last_sent_at + MQTT_RETRY_TIMEOUT_MS;
         delivery->retry_count      = 0;
         delivery->active           = true;
+        delivery->published_index  = index;
 
         break;
     }

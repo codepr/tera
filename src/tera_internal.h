@@ -174,8 +174,12 @@ static inline void tera_context_init(Tera_Context *ctx)
 
     for (usize i = 0; i < MAX_PUBLISHED_MESSAGES; ++i) {
         ctx->published_messages[i].options = 0;
+        ctx->published_messages[i].next_free = i + 1;
+        ctx->properties_data[i].active     = false;
+        ctx->properties_data[i].next_free  = i + 1;
     }
 
-    for (usize i = 0; i < MAX_PUBLISHED_MESSAGES; ++i)
-        ctx->properties_data[i].active = false;
+    // The last slot points to an invalid index to signify the end of the list
+    ctx->properties_data[MAX_PUBLISHED_MESSAGES - 1].active    = false;
+    ctx->properties_data[MAX_PUBLISHED_MESSAGES - 1].next_free = -1; // Or some sentinel value
 }

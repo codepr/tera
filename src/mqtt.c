@@ -1,4 +1,8 @@
 #include "mqtt.h"
+#include "tera_internal.h"
+
+static int16 property_free_list_head  = 0;
+static int16 published_free_list_head = 0;
 
 static int mqtt_read_variable_byte_integer(Buffer *buf, uint32 *value)
 {
@@ -113,6 +117,69 @@ isize mqtt_variable_length_write(Buffer *buf, usize len)
     } while (len > 0);
 
     return bytes;
+}
+
+Publish_Properties *mqtt_publish_properties_find_free(Tera_Context *ctx, usize *property_id)
+{
+    if (property_free_list_head == -1)
+        return NULL;
+
+    usize index                        = property_free_list_head;
+
+    property_free_list_head            = ctx->properties_data[index].next_free;
+
+    ctx->properties_data[index].active = true;
+    *property_id                       = index;
+
+    return &ctx->properties_data[index];
+}
+
+void mqtt_publish_properties_free(Tera_Context *ctx, usize property_id)
+{
+    if (property_id >= MAX_PUBLISHED_MESSAGES)
+        return;
+
+    ctx->properties_data[property_id].active    = false;
+
+    // The released slot becomes the new head of the free list
+    ctx->properties_data[property_id].next_free = property_free_list_head;
+    property_free_list_head                     = property_id;
+}
+
+Published_Message *mqtt_published_message_find_free(Tera_Context *ctx, uint16 *published_id)
+{
+    if (published_free_list_head == -1)
+        return NULL;
+
+    uint16 index                           = published_free_list_head;
+
+    published_free_list_head               = ctx->published_messages[index].next_free;
+
+    Data_Flags flags                       = data_flags_set(false, 0, false, true);
+    ctx->published_messages[index].options = flags.value;
+
+    *published_id                          = index;
+
+    return &ctx->published_messages[index];
+}
+
+void mqtt_published_message_free(Tera_Context *ctx, usize published_id)
+{
+    if (published_id >= MAX_PUBLISHED_MESSAGES)
+        return;
+
+    ctx->published_messages[published_id].deliveries--;
+
+    if (ctx->published_messages[published_id].deliveries == 0) {
+        ctx->published_messages[published_id].options =
+            data_flags_active_set(ctx->published_messages[published_id].options, 0);
+
+        mqtt_publish_properties_free(ctx, ctx->published_messages[published_id].property_id);
+
+        // The released slot becomes the new head of the free list
+        ctx->published_messages[published_id].next_free = published_free_list_head;
+        published_free_list_head                        = published_id;
+    }
 }
 
 void mqtt_message_dump(const Buffer *buf, bool read)
