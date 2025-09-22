@@ -105,10 +105,10 @@ to enrich it
     - Proper topic support, wildcards etc ⚠️
     - Will & Testament ❌
     - ...
+- Configuration handling ⚠️
+- MQTTv3 support ⚠️
 - Move memory allocation to zero'ed heap memory  ❌
 - Compaction of data segments ❌
 - Allow to compile with no heap memory allocation  ❌
-- Configuration handling ⚠️
 - Session management and persistence ❌
-- MQTTv3 support ❌
 - QUIC support ❌

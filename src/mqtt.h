@@ -289,7 +289,7 @@ static inline isize mqtt_fixed_header_read(Buffer *buf, Fixed_Header *header)
 
     // Read packet type and flags
     if (buffer_read_struct(buf, "B", &header->byte) != sizeof(uint8)) {
-        log_error("Failed to read packet header");
+        log_error(">>>>: Failed to read packet header");
         return MQTT_DECODE_ERROR;
     }
     read_bytes       = sizeof(uint8);
@@ -297,7 +297,7 @@ static inline isize mqtt_fixed_header_read(Buffer *buf, Fixed_Header *header)
     // Read remaining length
     int length_bytes = mqtt_variable_length_read(buf, &header->remaining_length);
     if (length_bytes < 0) {
-        log_error("Invalid variable length encoding");
+        log_error(">>>>: Invalid variable length encoding");
         buf->read_pos = start_pos; // Restore position
         return MQTT_DECODE_INCOMPLETE;
     }
@@ -307,7 +307,7 @@ static inline isize mqtt_fixed_header_read(Buffer *buf, Fixed_Header *header)
     usize total_packet_size =
         sizeof(uint8) + length_bytes + header->remaining_length; // header + length + payload
     if (start_pos + total_packet_size > buf->size) {
-        log_debug("Incomplete packet - need %zu more bytes",
+        log_debug(">>>>: Fixed header - incomplete packet, need %zu more bytes",
                   (start_pos + total_packet_size) - buf->size);
         buf->read_pos = start_pos; // Restore position
         return MQTT_DECODE_INCOMPLETE;
@@ -321,7 +321,7 @@ static inline isize mqtt_fixed_header_write(Buffer *buf, Fixed_Header *header)
     isize written_bytes = 0;
 
     if (buffer_write_struct(buf, "B", header->byte) != sizeof(uint8)) {
-        log_error("Failed to read packet header");
+        log_error(">>>>: Fixed Header - failed to write packet header");
         return MQTT_DECODE_ERROR;
     }
     written_bytes += sizeof(uint8);

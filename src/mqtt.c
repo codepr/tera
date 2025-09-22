@@ -117,6 +117,8 @@ isize mqtt_variable_length_write(Buffer *buf, usize len)
     return bytes;
 }
 
+// Simplest key generation function to combine a client ID and message ID, providing a
+// reasanoble low collision chance.
 static inline uint32 make_key(uint16 client_id, uint16 mid)
 {
     uint32 hash_key = (client_id << 16) | mid;
@@ -183,7 +185,7 @@ void mqtt_message_delivery_free(Tera_Context *ctx, uint16 client_id, uint16 mid)
 
     if (index < bucket->count - 1)
         memmove(bucket->indexes + index, bucket->indexes + index + 1,
-                sizeof(int16) * bucket->count - index);
+                sizeof(int16) * (bucket->count - index));
     else
         bucket->indexes[index] = -1;
 

@@ -71,9 +71,13 @@ typedef struct connection_data {
     bool connected;
 } Connection_Data;
 
+// Bare bone lookup table entry structure to be used in a fixed length array
+// to track inflight deliveries
+#define MAX_COLLISIONS 8
+
 typedef struct {
     int8 count;
-    int16 indexes[8];
+    int16 indexes[MAX_COLLISIONS];
 } Delivery_Bucket;
 
 /**
@@ -92,6 +96,7 @@ typedef struct {
  * - Arrays are sized by MAX_* constants to enforce broker capacity limits
  * - Parallel arrays (connection_data/client_data) allow separation of transport vs
  *   protocol state
+ * - Utility sentinels and auxilary table for quick lookup of resources
  *
  * Memory Layout:
  * - Connection/client data: Per-socket state for active connections
@@ -115,6 +120,11 @@ typedef struct tera_context {
     Arena *message_arena;
 
     // Mapping auxilary indexes
+    // Simple free-list sentinels for properties, published and deliveries for
+    // fast lookup
+    // The last one is a basic lookup table to track inflight message, a max
+    // number of 8 collisions per entry should be enough to provide reasonable
+    // low probability of dropping packets
     int16 property_free_list_head;
     int16 published_free_list_head;
     int16 message_delivery_free_list_head;
@@ -201,7 +211,7 @@ static inline void tera_context_init(Tera_Context *ctx)
 
     for (usize i = 0; i < MAX_DELIVERY_MESSAGES; ++i) {
         ctx->message_delivery_lookup_table[i].count = 0;
-        for (uint8 j = 0; j < 8; ++j)
+        for (uint8 j = 0; j < MAX_COLLISIONS; ++j)
             ctx->message_delivery_lookup_table[i].indexes[j] = -1;
     }
 

@@ -77,7 +77,7 @@ static MQTT_Decode_Result mqtt_publish_properties_read(Buffer *buf, Publish_Prop
 
         case PUBLISH_PROP_SUBSCRIPTION_IDENTIFIER: {
             if (props->subscription_id_count >= MAX_SUBSCRIPTION_IDS) {
-                log_error("Too many subscription identifiers");
+                log_error(">>>>: Too many subscription identifiers");
                 return MQTT_DECODE_ERROR;
             }
 
@@ -91,7 +91,7 @@ static MQTT_Decode_Result mqtt_publish_properties_read(Buffer *buf, Publish_Prop
             props->subscription_id_count++;
             bytes_consumed += sub_id_bytes;
 
-            log_info("Found Subscription ID: %lu", sub_id);
+            log_info(">>>>: Found Subscription ID: %lu", sub_id);
             break;
         }
 
@@ -106,7 +106,7 @@ static MQTT_Decode_Result mqtt_publish_properties_read(Buffer *buf, Publish_Prop
             // TODO handle other properties
 
         default:
-            log_warning("Unknown PUBLISH property: 0x%02X", property_id);
+            log_warning(">>>>: Unknown PUBLISH property: 0x%02X", property_id);
             // Skip unknown property - need to determine size based on type
             return MQTT_DECODE_ERROR; // For safety
         }
@@ -136,7 +136,7 @@ MQTT_Decode_Result mqtt_publish_read(Tera_Context *ctx, const Client_Data *cdata
     // Validate we have enough data for the complete packet
     usize total_packet_size = sizeof(uint8) + header.remaining_length + fixed_header_len;
     if (start_pos + total_packet_size > buf->size) {
-        log_debug("Incomplete packet - need %zu more bytes",
+        log_debug(">>>>: Incomplete packet - need %zu more bytes",
                   (buf->read_pos + total_packet_size) - buf->size);
         buf->read_pos = start_pos; // Restore position
         return MQTT_DECODE_INCOMPLETE;
@@ -154,7 +154,7 @@ MQTT_Decode_Result mqtt_publish_read(Tera_Context *ctx, const Client_Data *cdata
     uint8 *topic_ptr = arena_alloc(ctx->message_arena, message->topic_size);
     if (!topic_ptr) {
         // TODO handle case
-        log_critical("bump arena OOM");
+        log_critical(">>>>: bump arena OOM");
     }
 
     if (buffer_read_binary(topic_ptr, buf, message->topic_size) != message->topic_size)
@@ -191,7 +191,7 @@ MQTT_Decode_Result mqtt_publish_read(Tera_Context *ctx, const Client_Data *cdata
     uint8 *message_ptr      = arena_alloc(ctx->message_arena, message->message_size);
     if (!message_ptr) {
         // TODO handle case
-        log_critical("bump arena OOM");
+        log_critical(">>>>: bump arena OOM");
     }
 
     if (message->message_size > 0) {
