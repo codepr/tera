@@ -3,25 +3,6 @@
 #include "tera_internal.h"
 #include <string.h>
 
-static Message_Delivery *find_free_delivery_slot(Tera_Context *ctx, int16 client_id, uint16 mid)
-{
-    Message_Delivery *delivery = NULL;
-    for (usize i = 0; i < MAX_DELIVERY_MESSAGES; ++i) {
-        delivery = &ctx->message_deliveries[i];
-
-        if (delivery->active && delivery->client_id == client_id &&
-            delivery->published_msg_id == mid)
-            return delivery;
-
-        if (delivery->active)
-            continue;
-
-        break;
-    }
-
-    return delivery;
-}
-
 static uint32 calculate_publish_properties_length(const Publish_Properties *props)
 {
     uint32 length = 0;
@@ -145,7 +126,8 @@ MQTT_Decode_Result mqtt_publish_read(Tera_Context *ctx, const Client_Data *cdata
     isize fixed_header_len = mqtt_fixed_header_read(buf, &header);
     if (fixed_header_len < 0) {
         log_error(">>>>: Failed to read packet header");
-        return MQTT_DECODE_ERROR;
+        buf->read_pos = start_pos; // Restore position
+        return MQTT_DECODE_INCOMPLETE;
     }
 
     if (header.remaining_length > MAX_PACKET_SIZE)
@@ -194,7 +176,7 @@ MQTT_Decode_Result mqtt_publish_read(Tera_Context *ctx, const Client_Data *cdata
         consumed += prop_bytes;
 
         // Properties
-        usize property_id         = 0;
+        int16 property_id         = 0;
         Publish_Properties *props = mqtt_publish_properties_find_free(ctx, &property_id);
         if (mqtt_publish_properties_read(buf, props, properties_length) != MQTT_DECODE_SUCCESS)
             return MQTT_DECODE_ERROR;
@@ -442,6 +424,7 @@ void mqtt_publish_fanout_write(Tera_Context *ctx, const Client_Data *cdata,
 {
     const char *publish_topic  = (const char *)arena_at(ctx->message_arena, pub_msg->topic_offset);
     isize written_bytes        = 0;
+    uint16 delivery_index      = 0;
     Publish_Properties *props  = &ctx->properties_data[pub_msg->property_id];
     const uint8 *payload       = arena_at(ctx->message_arena, pub_msg->message_offset);
     Buffer *buf                = NULL;
@@ -469,12 +452,8 @@ void mqtt_publish_fanout_write(Tera_Context *ctx, const Client_Data *cdata,
             continue;
 
         // Create delivery record for this subscription
-        Message_Delivery *delivery = find_free_delivery_slot(ctx, subdata->client_id, pub_msg->id);
+        Message_Delivery *delivery = mqtt_message_delivery_find_free(ctx, &delivery_index);
         if (!delivery)
-            continue;
-
-        // There is already a delivery in progress for this subscription
-        if (delivery->active)
             continue;
 
         delivery->published_msg_id = pub_msg->id;
@@ -482,12 +461,14 @@ void mqtt_publish_fanout_write(Tera_Context *ctx, const Client_Data *cdata,
         delivery->message_id       = mqtt_subscription_next_mid(subdata);
         delivery->published_index  = index;
 
+        mqtt_message_delivery_add(ctx, subdata->client_id, delivery->message_id, delivery_index);
+
         /*
          * Update QoS according to subscriber's one, following MQTT
          * rules: The min between the original QoS and the subscriber
          * QoS
          */
-        uint8 granted_qos          = subdata->options & 0x03;
+        uint8 granted_qos = subdata->options & 0x03;
         delivery->delivery_qos =
             message_flags.bits.qos >= granted_qos ? granted_qos : message_flags.bits.qos;
         delivery->state         = (delivery->delivery_qos == AT_MOST_ONCE)    ? MSG_ACKNOWLEDGED
@@ -558,20 +539,12 @@ void mqtt_publish_fanout_write(Tera_Context *ctx, const Client_Data *cdata,
         pub_msg->options = data_flags_active_set(pub_msg->options, 0);
         break;
     case AT_LEAST_ONCE:
-        // Check if a delivery exists already first
-        Message_Delivery *delivery = find_free_delivery_slot(ctx, cdata->conn_id, pub_msg->id);
-        if (delivery->active)
-            break;
-
-        pub_msg->deliveries++;
         mqtt_ack_write(ctx, cdata, PUBACK, pub_msg->id);
         pub_msg->options = data_flags_active_set(pub_msg->options, 0);
         break;
     case EXACTLY_ONCE: {
         // Create delivery record for this subscription, check if one exists already first
-        Message_Delivery *delivery = find_free_delivery_slot(ctx, cdata->conn_id, pub_msg->id);
-        if (delivery->active)
-            break;
+        Message_Delivery *delivery = mqtt_message_delivery_find_free(ctx, &delivery_index);
 
         pub_msg->deliveries++;
         mqtt_ack_write(ctx, cdata, PUBREC, pub_msg->id);
@@ -580,18 +553,20 @@ void mqtt_publish_fanout_write(Tera_Context *ctx, const Client_Data *cdata,
         delivery->client_id        = cdata->conn_id;
         delivery->message_id       = pub_msg->id;
 
+        mqtt_message_delivery_add(ctx, cdata->conn_id, pub_msg->id, delivery_index);
+
         /*
          * Update QoS according to publisher's one, following MQTT
          * rules: The min between the original QoS and the subscriber
          * QoS
          */
-        delivery->delivery_qos     = message_flags.bits.qos;
-        delivery->state            = MSG_AWAITING_PUBREL;
-        delivery->last_sent_at     = current_millis_relative();
-        delivery->next_retry_at    = delivery->last_sent_at + MQTT_RETRY_TIMEOUT_MS;
-        delivery->retry_count      = 0;
-        delivery->active           = true;
-        delivery->published_index  = index;
+        delivery->delivery_qos    = message_flags.bits.qos;
+        delivery->state           = MSG_AWAITING_PUBREL;
+        delivery->last_sent_at    = current_millis_relative();
+        delivery->next_retry_at   = delivery->last_sent_at + MQTT_RETRY_TIMEOUT_MS;
+        delivery->retry_count     = 0;
+        delivery->active          = true;
+        delivery->published_index = index;
 
         break;
     }

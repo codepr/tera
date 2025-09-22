@@ -155,15 +155,22 @@ typedef struct message_delivery {
     uint32 next_retry_at; // When to retry (0 = don't retry)
 
     // Message metadata for topic, payload
-    uint16 client_id;         // Target client (subscriber)
-    uint16 published_msg_id;  // Points to a Published_Message
-    uint16 message_id;        // MQTT packet ID for client
-    uint16 published_index;   // Published_Message index in memory
+    uint16 client_id;        // Target client (subscriber)
+    uint16 published_msg_id; // Points to a Published_Message
+    uint16 message_id;       // MQTT packet ID for client
+    uint16 published_index;  // Published_Message index in memory
+    int16 next_free;
     uint8 retry_count;        // Number of retries attempted
     Delivery_State state : 4; // Current delivery state
     uint8 delivery_qos : 2;   // Negotiated QoS (min between publisher/subscriber)
     bool active : 1;          // Wether the delivery is free to be used
 } Message_Delivery;
+
+Message_Delivery *mqtt_message_delivery_find_free(Tera_Context *ctx, uint16 *delivery_id);
+Message_Delivery *mqtt_message_delivery_find_existing(Tera_Context *ctx, uint16 client_id,
+                                                      uint16 mid);
+void mqtt_message_delivery_add(Tera_Context *ctx, uint16 client_id, uint16 mid, uint16 index);
+void mqtt_message_delivery_free(Tera_Context *ctx, uint16 client_id, uint16 mid);
 
 typedef struct published_message {
     // Message metadata for topic, payload
@@ -195,7 +202,7 @@ Published_Message *mqtt_published_message_find_free(Tera_Context *ctx, uint16 *p
  * incoming message. This function sets the message slot as free using
  * the message ID to find the position in the array.
  */
-void mqtt_published_message_free(Tera_Context *ctx, usize published_id);
+void mqtt_published_message_free(Tera_Context *ctx, uint16 published_id);
 
 typedef enum {
     MQTT_DECODE_SUCCESS       = 0,
@@ -462,8 +469,8 @@ typedef struct publish_properties {
     // TODO User Properties (multiple allowed)
 } Publish_Properties;
 
-Publish_Properties *mqtt_publish_properties_find_free(Tera_Context *ctx, usize *property_id);
-void mqtt_publish_properties_free(Tera_Context *ctx, usize property_id);
+Publish_Properties *mqtt_publish_properties_find_free(Tera_Context *ctx, int16 *property_id);
+void mqtt_publish_properties_free(Tera_Context *ctx, int16 property_id);
 
 /*
  * MQTT Publish packet unpack function, as described in the MQTT v3.1.1 specs
@@ -525,7 +532,7 @@ MQTT_Decode_Result mqtt_unsubscribe_read(Tera_Context *ctx, const Client_Data *c
 
 MQTT_Decode_Result mqtt_pingreq_read(Tera_Context *ctx, const Client_Data *cdata);
 
-MQTT_Decode_Result mqtt_ack_read(Tera_Context *ctx, const Client_Data *cdata, int16 *mid);
+MQTT_Decode_Result mqtt_ack_read(Tera_Context *ctx, const Client_Data *cdata, uint16 *mid);
 
 /**
  * MQTT 5.0 CONNACK Reason Codes
@@ -577,6 +584,6 @@ void mqtt_publish_retry(Tera_Context *ctx, Message_Delivery *delivery);
 
 void mqtt_pingresp_write(Tera_Context *ctx, const Client_Data *cdata);
 
-void mqtt_ack_write(Tera_Context *ctx, const Client_Data *cdata, Packet_Type ack_type, int16 id);
+void mqtt_ack_write(Tera_Context *ctx, const Client_Data *cdata, Packet_Type ack_type, uint16 id);
 
 uint16 mqtt_subscription_next_mid(Subscription_Data *subscription_data);

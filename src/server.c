@@ -97,6 +97,7 @@ static void process_delivery_timeouts(Tera_Context *ctx, int64 current_time)
             if (delivery->retry_count >= MQTT_MAX_RETRY_ATTEMPTS) {
                 delivery->state  = MSG_EXPIRED;
                 delivery->active = false;
+                mqtt_message_delivery_free(ctx, delivery->client_id, delivery->message_id);
                 mqtt_published_message_free(ctx, delivery->published_index);
             } else {
                 delivery->retry_count++;
@@ -117,20 +118,14 @@ static void process_delivery_timeouts(Tera_Context *ctx, int64 current_time)
 static void update_message_delivery(Tera_Context *ctx, uint16 client_id, int16 mid,
                                     Delivery_State new_state)
 {
-    for (usize i = 0; i < MAX_DELIVERY_MESSAGES; ++i) {
-        Message_Delivery *delivery = &ctx->message_deliveries[i];
-        if (!delivery->active)
-            continue;
+    // Alternative implementation
+    Message_Delivery *delivery = mqtt_message_delivery_find_existing(ctx, client_id, mid);
+    delivery->state            = new_state;
 
-        if (delivery->client_id == client_id && delivery->message_id == mid) {
-            delivery->state = new_state;
-
-            if (new_state == MSG_ACKNOWLEDGED) {
-                delivery->active = false;
-                mqtt_published_message_free(ctx, delivery->published_index);
-            }
-            break;
-        }
+    if (new_state == MSG_ACKNOWLEDGED) {
+        delivery->active = false;
+        mqtt_message_delivery_free(ctx, delivery->client_id, delivery->message_id);
+        mqtt_published_message_free(ctx, delivery->published_index);
     }
 }
 
@@ -251,14 +246,14 @@ static Transport_Result process_client_packets(Tera_Context *ctx, int fd)
             break;
         }
         case PUBACK: {
-            int16 mid = 0;
+            uint16 mid = 0;
             mqtt_ack_read(ctx, client, &mid);
             update_message_delivery(ctx, client->conn_id, mid, MSG_ACKNOWLEDGED);
             break;
         }
         case PUBREC: {
-            int16 mid = 0;
-            result    = mqtt_ack_read(ctx, client, &mid);
+            uint16 mid = 0;
+            result     = mqtt_ack_read(ctx, client, &mid);
             if (result == MQTT_DECODE_SUCCESS) {
                 mqtt_ack_write(ctx, client, PUBREL, mid);
                 update_message_delivery(ctx, client->conn_id, mid, MSG_AWAITING_PUBCOMP);
@@ -266,8 +261,8 @@ static Transport_Result process_client_packets(Tera_Context *ctx, int fd)
             break;
         }
         case PUBREL: {
-            int16 mid = 0;
-            result    = mqtt_ack_read(ctx, client, &mid);
+            uint16 mid = 0;
+            result     = mqtt_ack_read(ctx, client, &mid);
             if (result == MQTT_DECODE_SUCCESS) {
                 mqtt_ack_write(ctx, client, PUBCOMP, mid);
                 update_message_delivery(ctx, client->conn_id, mid, MSG_ACKNOWLEDGED);
@@ -275,7 +270,7 @@ static Transport_Result process_client_packets(Tera_Context *ctx, int fd)
             break;
         }
         case PUBCOMP: {
-            int16 mid = 0;
+            uint16 mid = 0;
             mqtt_ack_read(ctx, client, &mid);
             update_message_delivery(ctx, client->conn_id, mid, MSG_ACKNOWLEDGED);
             break;
@@ -287,8 +282,7 @@ static Transport_Result process_client_packets(Tera_Context *ctx, int fd)
             break;
         default:
             log_error(">>>>: Unknown packet received %d (%ld)", mqtt_type_get(header), nread);
-            buffer_skip(buf, buffer_available(buf));
-            break;
+            return TRANSPORT_INCOMPLETE_PACKET;
         }
     }
 

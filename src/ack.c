@@ -2,7 +2,7 @@
 #include "mqtt.h"
 #include "tera_internal.h"
 
-MQTT_Decode_Result mqtt_ack_read(Tera_Context *ctx, const Client_Data *cdata, int16 *mid)
+MQTT_Decode_Result mqtt_ack_read(Tera_Context *ctx, const Client_Data *cdata, uint16 *mid)
 {
     Buffer *buf         = &ctx->connection_data[cdata->conn_id].recv_buffer;
     Fixed_Header header = {0};
@@ -40,7 +40,7 @@ MQTT_Decode_Result mqtt_ack_read(Tera_Context *ctx, const Client_Data *cdata, in
 #define DEFAULT_PUBREL_BYTE  0x62
 #define DEFAULT_PUBCOMP_BYTE 0x70
 
-void mqtt_ack_write(Tera_Context *ctx, const Client_Data *cdata, Packet_Type ack_type, int16 id)
+void mqtt_ack_write(Tera_Context *ctx, const Client_Data *cdata, Packet_Type ack_type, uint16 id)
 {
     Buffer *buf         = &ctx->connection_data[cdata->conn_id].send_buffer;
     // remaining length of 2 means success by default

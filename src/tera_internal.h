@@ -71,6 +71,11 @@ typedef struct connection_data {
     bool connected;
 } Connection_Data;
 
+typedef struct {
+    int8 count;
+    int16 indexes[8];
+} Delivery_Bucket;
+
 /**
  * Main server context structure containing all global state for the MQTT broker.
  *
@@ -108,6 +113,12 @@ typedef struct tera_context {
     Arena *client_arena;
     Arena *topic_arena;
     Arena *message_arena;
+
+    // Mapping auxilary indexes
+    int16 property_free_list_head;
+    int16 published_free_list_head;
+    int16 message_delivery_free_list_head;
+    Delivery_Bucket message_delivery_lookup_table[MAX_DELIVERY_MESSAGES];
 
     // Data arrays
     Connection_Data connection_data[MAX_CLIENTS];
@@ -168,18 +179,36 @@ static inline void tera_context_init(Tera_Context *ctx)
     ctx->message_arena = &message_arena;
 
     for (usize i = 0; i < MAX_SUBSCRIPTIONS; ++i) {
-        ctx->subscription_data[i].active = false;
-        ctx->subscription_data[i].mid    = 1;
+        ctx->subscription_data[i].active     = false;
+        ctx->subscription_data[i].mid        = 1;
+        ctx->subscription_data[i].topic_size = 0;
     }
 
     for (usize i = 0; i < MAX_PUBLISHED_MESSAGES; ++i) {
-        ctx->published_messages[i].options = 0;
+        ctx->published_messages[i].options   = 0;
         ctx->published_messages[i].next_free = i + 1;
-        ctx->properties_data[i].active     = false;
-        ctx->properties_data[i].next_free  = i + 1;
+        ctx->properties_data[i].active       = false;
+        ctx->properties_data[i].next_free    = i + 1;
+    }
+
+    for (usize i = 0; i < MAX_DELIVERY_MESSAGES; ++i) {
+        ctx->message_deliveries[i].next_free = i + 1;
+    }
+
+    ctx->property_free_list_head         = 0;
+    ctx->published_free_list_head        = 0;
+    ctx->message_delivery_free_list_head = 0;
+
+    for (usize i = 0; i < MAX_DELIVERY_MESSAGES; ++i) {
+        ctx->message_delivery_lookup_table[i].count = 0;
+        for (uint8 j = 0; j < 8; ++j)
+            ctx->message_delivery_lookup_table[i].indexes[j] = -1;
     }
 
     // The last slot points to an invalid index to signify the end of the list
-    ctx->properties_data[MAX_PUBLISHED_MESSAGES - 1].active    = false;
-    ctx->properties_data[MAX_PUBLISHED_MESSAGES - 1].next_free = -1; // Or some sentinel value
+    ctx->properties_data[MAX_PUBLISHED_MESSAGES - 1].active      = false;
+    ctx->properties_data[MAX_PUBLISHED_MESSAGES - 1].next_free   = -1;
+
+    ctx->message_deliveries[MAX_DELIVERY_MESSAGES - 1].active    = false;
+    ctx->message_deliveries[MAX_DELIVERY_MESSAGES - 1].next_free = -1;
 }

@@ -1,8 +1,6 @@
 #include "mqtt.h"
 #include "tera_internal.h"
-
-static int16 property_free_list_head  = 0;
-static int16 published_free_list_head = 0;
+#include <string.h>
 
 static int mqtt_read_variable_byte_integer(Buffer *buf, uint32 *value)
 {
@@ -119,14 +117,92 @@ isize mqtt_variable_length_write(Buffer *buf, usize len)
     return bytes;
 }
 
-Publish_Properties *mqtt_publish_properties_find_free(Tera_Context *ctx, usize *property_id)
+static inline uint32 make_key(uint16 client_id, uint16 mid)
 {
-    if (property_free_list_head == -1)
+    uint32 hash_key = (client_id << 16) | mid;
+    uint32 index    = (hash_key * 2654435761U) >> 19;
+    return index;
+}
+
+Message_Delivery *mqtt_message_delivery_find_free(Tera_Context *ctx, uint16 *delivery_id)
+{
+    if (ctx->message_delivery_free_list_head == -1)
         return NULL;
 
-    usize index                        = property_free_list_head;
+    int16 index                           = ctx->message_delivery_free_list_head;
+    ctx->message_delivery_free_list_head  = ctx->message_deliveries[index].next_free;
 
-    property_free_list_head            = ctx->properties_data[index].next_free;
+    ctx->message_deliveries[index].active = true;
+    *delivery_id                          = index;
+
+    return &ctx->message_deliveries[index];
+}
+
+Message_Delivery *mqtt_message_delivery_find_existing(Tera_Context *ctx, uint16 client_id,
+                                                      uint16 mid)
+{
+    int16 key              = make_key(client_id, mid);
+    Delivery_Bucket bucket = ctx->message_delivery_lookup_table[key];
+    if (bucket.count == 0)
+        return NULL;
+
+    for (int8 i = 0; i < bucket.count; ++i) {
+        Message_Delivery *delivery = &ctx->message_deliveries[bucket.indexes[i]];
+
+        if (delivery->client_id == client_id && delivery->message_id == mid)
+            return delivery;
+    }
+
+    return NULL;
+}
+
+void mqtt_message_delivery_add(Tera_Context *ctx, uint16 client_id, uint16 mid, uint16 index)
+{
+    int16 key                        = make_key(client_id, mid);
+    Delivery_Bucket *bucket          = &ctx->message_delivery_lookup_table[key];
+
+    bucket->indexes[bucket->count++] = index;
+}
+
+void mqtt_message_delivery_free(Tera_Context *ctx, uint16 client_id, uint16 mid)
+{
+    int16 key               = make_key(client_id, mid);
+    Delivery_Bucket *bucket = &ctx->message_delivery_lookup_table[key];
+
+    int8 index              = 0;
+    for (int8 i = 0; i < bucket->count; ++i) {
+        Message_Delivery *target = &ctx->message_deliveries[bucket->indexes[i]];
+
+        if (target->client_id == client_id && target->message_id == mid) {
+            index = i;
+            break;
+        }
+    }
+
+    int16 delivery_id = bucket->indexes[index];
+
+    if (index < bucket->count - 1)
+        memmove(bucket->indexes + index, bucket->indexes + index + 1,
+                sizeof(int16) * bucket->count - index);
+    else
+        bucket->indexes[index] = -1;
+
+    bucket->count--;
+
+    ctx->message_deliveries[delivery_id].active    = false;
+
+    // The released slot becomes the new head of the free list
+    ctx->message_deliveries[delivery_id].next_free = ctx->message_delivery_free_list_head;
+    ctx->message_delivery_free_list_head           = delivery_id;
+}
+
+Publish_Properties *mqtt_publish_properties_find_free(Tera_Context *ctx, int16 *property_id)
+{
+    if (ctx->property_free_list_head == -1)
+        return NULL;
+
+    int16 index                        = ctx->property_free_list_head;
+    ctx->property_free_list_head       = ctx->properties_data[index].next_free;
 
     ctx->properties_data[index].active = true;
     *property_id                       = index;
@@ -134,7 +210,7 @@ Publish_Properties *mqtt_publish_properties_find_free(Tera_Context *ctx, usize *
     return &ctx->properties_data[index];
 }
 
-void mqtt_publish_properties_free(Tera_Context *ctx, usize property_id)
+void mqtt_publish_properties_free(Tera_Context *ctx, int16 property_id)
 {
     if (property_id >= MAX_PUBLISHED_MESSAGES)
         return;
@@ -142,18 +218,17 @@ void mqtt_publish_properties_free(Tera_Context *ctx, usize property_id)
     ctx->properties_data[property_id].active    = false;
 
     // The released slot becomes the new head of the free list
-    ctx->properties_data[property_id].next_free = property_free_list_head;
-    property_free_list_head                     = property_id;
+    ctx->properties_data[property_id].next_free = ctx->property_free_list_head;
+    ctx->property_free_list_head                = property_id;
 }
 
 Published_Message *mqtt_published_message_find_free(Tera_Context *ctx, uint16 *published_id)
 {
-    if (published_free_list_head == -1)
+    if (ctx->published_free_list_head == -1)
         return NULL;
 
-    uint16 index                           = published_free_list_head;
-
-    published_free_list_head               = ctx->published_messages[index].next_free;
+    int16 index                            = ctx->published_free_list_head;
+    ctx->published_free_list_head          = ctx->published_messages[index].next_free;
 
     Data_Flags flags                       = data_flags_set(false, 0, false, true);
     ctx->published_messages[index].options = flags.value;
@@ -163,7 +238,7 @@ Published_Message *mqtt_published_message_find_free(Tera_Context *ctx, uint16 *p
     return &ctx->published_messages[index];
 }
 
-void mqtt_published_message_free(Tera_Context *ctx, usize published_id)
+void mqtt_published_message_free(Tera_Context *ctx, uint16 published_id)
 {
     if (published_id >= MAX_PUBLISHED_MESSAGES)
         return;
@@ -177,8 +252,8 @@ void mqtt_published_message_free(Tera_Context *ctx, usize published_id)
         mqtt_publish_properties_free(ctx, ctx->published_messages[published_id].property_id);
 
         // The released slot becomes the new head of the free list
-        ctx->published_messages[published_id].next_free = published_free_list_head;
-        published_free_list_head                        = published_id;
+        ctx->published_messages[published_id].next_free = ctx->published_free_list_head;
+        ctx->published_free_list_head                   = published_id;
     }
 }
 
