@@ -290,7 +290,7 @@ static inline isize mqtt_fixed_header_read(Buffer *buf, Fixed_Header *header)
     // Read packet type and flags
     if (buffer_read_struct(buf, "B", &header->byte) != sizeof(uint8)) {
         log_error(">>>>: Failed to read packet header");
-        return MQTT_DECODE_ERROR;
+        return MQTT_DECODE_INCOMPLETE;
     }
     read_bytes       = sizeof(uint8);
 

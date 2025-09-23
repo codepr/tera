@@ -45,14 +45,7 @@ static void *arena_alloc_align(Arena *a, uint32 size, uint32 align)
     return NULL;
 }
 
-uintptr_t arena_current_offset(const Arena *a)
-{
-    uintptr_t curr_ptr = (uintptr_t)a->buf + (uintptr_t)a->curr_offset;
-    uintptr_t offset   = align_forward(curr_ptr, DEFAULT_ALIGNMENT);
-    offset -= (uintptr_t)a->buf;
-
-    return offset;
-}
+uintptr_t arena_current_offset(const Arena *a) { return a->prev_offset; }
 
 void *arena_alloc(Arena *a, uint32 size) { return arena_alloc_align(a, size, DEFAULT_ALIGNMENT); }
 void *arena_at(const Arena *a, uintptr_t offset) { return &a->buf[offset]; }

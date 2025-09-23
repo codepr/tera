@@ -133,12 +133,12 @@ err:
     return -1;
 }
 
-isize net_send_nonblocking(int fd, const void *ptr, size_t len)
+isize net_send_nonblocking(int fd, const void *ptr, usize len)
 {
-    const char *buf  = ptr;
-    size_t total     = 0;
-    size_t bytesleft = len;
-    ssize_t n        = 0;
+    const char *buf = ptr;
+    usize total     = 0;
+    usize bytesleft = len;
+    isize n         = 0;
 
     while (total < len) {
         n = send(fd, buf + total, bytesleft, MSG_NOSIGNAL);
@@ -160,11 +160,11 @@ err:
     return -1;
 }
 
-isize net_recv_nonblocking(int fd, void *ptr, size_t len)
+isize net_recv_nonblocking(int fd, void *ptr, usize len)
 {
-    char *buf     = ptr;
-    ssize_t n     = 0;
-    ssize_t total = 0;
+    char *buf   = ptr;
+    isize n     = 0;
+    isize total = 0;
 
     while (total < len) {
         if ((n = recv(fd, buf, len - total, 0)) < 0) {

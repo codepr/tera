@@ -121,26 +121,13 @@ MQTT_Decode_Result mqtt_publish_read(Tera_Context *ctx, const Client_Data *cdata
     Buffer *buf            = &ctx->connection_data[cdata->conn_id].recv_buffer;
     usize consumed         = 0;
     Fixed_Header header    = {0};
-    usize start_pos        = buf->read_pos;
 
     isize fixed_header_len = mqtt_fixed_header_read(buf, &header);
-    if (fixed_header_len < 0) {
-        log_error(">>>>: Failed to read packet header");
-        buf->read_pos = start_pos; // Restore position
-        return MQTT_DECODE_INCOMPLETE;
-    }
+    if (fixed_header_len < 0)
+        return fixed_header_len;
 
     if (header.remaining_length > MAX_PACKET_SIZE)
         return MQTT_DECODE_OUT_OF_BOUNDS;
-
-    // Validate we have enough data for the complete packet
-    usize total_packet_size = sizeof(uint8) + header.remaining_length + fixed_header_len;
-    if (start_pos + total_packet_size > buf->size) {
-        log_debug(">>>>: Incomplete packet - need %zu more bytes",
-                  (buf->read_pos + total_packet_size) - buf->size);
-        buf->read_pos = start_pos; // Restore position
-        return MQTT_DECODE_INCOMPLETE;
-    }
 
     Data_Flags flags = data_flags_set(header.bits.retain, header.bits.qos, header.bits.dup, true);
     message->options = flags.value;

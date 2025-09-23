@@ -11,7 +11,7 @@ MQTT_Decode_Result mqtt_connect_read(Tera_Context *ctx, Client_Data *cdata)
          * Already connected client, 2 CONNECT packet should be interpreted as
          * a violation of the protocol, causing disconnection of the client
          */
-        log_info(">>>>: received double CONNECT, disconnecting client");
+        log_info(">>>>: Received double CONNECT, disconnecting client");
         return MQTT_DECODE_INVALID;
     }
 
@@ -20,7 +20,8 @@ MQTT_Decode_Result mqtt_connect_read(Tera_Context *ctx, Client_Data *cdata)
 
     // Read packet type and flags
     if (buffer_read_struct(buf, "B", &(uint8){0}) != sizeof(uint8)) {
-        log_error("Failed to read packet header");
+        log_error(">>>>: Failed to read packet header");
+        buf->read_pos = start_pos; // Restore position
         return MQTT_DECODE_ERROR;
     }
 
@@ -28,7 +29,7 @@ MQTT_Decode_Result mqtt_connect_read(Tera_Context *ctx, Client_Data *cdata)
     usize packet_length = 0;
     int length_bytes    = mqtt_variable_length_read(buf, &packet_length);
     if (length_bytes < 0) {
-        log_error("Invalid variable length encoding");
+        log_error(">>>>: Invalid variable length encoding");
         buf->read_pos = start_pos; // Restore position
         return MQTT_DECODE_INCOMPLETE;
     }
@@ -37,7 +38,7 @@ MQTT_Decode_Result mqtt_connect_read(Tera_Context *ctx, Client_Data *cdata)
     usize total_packet_size =
         sizeof(uint8) + length_bytes + packet_length; // header + length + payload
     if (start_pos + total_packet_size > buf->size) {
-        log_debug("Incomplete packet - need %zu more bytes",
+        log_debug(">>>>: Incomplete packet - need %zu more bytes",
                   (start_pos + total_packet_size) - buf->size);
         buf->read_pos = start_pos; // Restore position
         return MQTT_DECODE_INCOMPLETE;
@@ -64,7 +65,7 @@ MQTT_Decode_Result mqtt_connect_read(Tera_Context *ctx, Client_Data *cdata)
         return MQTT_DECODE_ERROR;
 
     if (protocol_version != 0x05 && protocol_version != 0x04) {
-        log_error("Unsupported MQTT version: %d", protocol_version);
+        log_error(">>>>: Unsupported MQTT version: %d", protocol_version);
         // TODO Should send CONNACK with 0x84 (Unsupported Protocol Version)
         return MQTT_DECODE_ERROR;
     }
